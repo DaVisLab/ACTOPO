@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ServerManagerConfiguration>
+  <!-- This is the server manager configuration XML. It defines the interface to
+       our new filter. As a rule of thumb, try to locate the configuration for
+       a filter already in ParaView (in Servers/ServerManager/Resources/*.xml)
+       that matches your filter and then model your xml on it -->
+  <ProxyGroup name="filters">
+   <SourceProxy 
+     name="TestTopoRelations" 
+     class="ttkTestTopoRelations" 
+     label="TTK TestTopoRelations">
+     <Documentation
+        long_help="TTK testTopoRelations plugin."
+        short_help="TTK testTopoRelations plugin.">
+          TTK TestTopoRelations plugin documentation.
+     </Documentation>
+     <InputProperty
+        name="Input"
+        command="SetInputConnection">
+        <ProxyGroupDomain name="groups">
+          <Group name="sources"/>
+          <Group name="filters"/>
+        </ProxyGroupDomain>
+        <DataTypeDomain name="input_type">
+          <DataType value="vtkDataSet"/>
+        </DataTypeDomain>
+        <Documentation>
+          Data-set to process.
+        </Documentation>
+      </InputProperty>
+
+      ${DEBUG_WIDGETS}
+       
+      <Hints>
+        <ShowInMenu category="TTK - Misc" />
+      </Hints>
+   </SourceProxy>
+ </ProxyGroup>
+</ServerManagerConfiguration>

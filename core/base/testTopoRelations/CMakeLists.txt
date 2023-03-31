@@ -1,0 +1,9 @@
+ttk_add_base_library(testTopoRelations
+  SOURCES
+    TestTopoRelations.cpp
+  HEADERS
+    TestTopoRelations.h
+  DEPENDS
+    triangulation 
+    memoryUsage
+)

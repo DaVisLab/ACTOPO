@@ -1,0 +1,9 @@
+NAME
+  ttkFormanGradient
+SOURCES
+  ttkFormanGradient.cpp
+HEADERS
+  ttkFormanGradient.h
+DEPENDS
+  formanGradient
+  ttkAlgorithm

@@ -1,0 +1,9 @@
+NAME
+  ttkTestTopoRelations
+SOURCES
+  ttkTestTopoRelations.cpp
+HEADERS
+  ttkTestTopoRelations.h
+DEPENDS
+  testTopoRelations
+  ttkAlgorithm

@@ -1,0 +1,26 @@
+# Hidden files
+.*
+!.gitignore
+!.github
+
+# Temporary and backup files
+\#*\#
+*~
+*.bak
+*.old
+*.autosave
+*.swp
+*.kate-swp
+
+# Project files specific to a local user
+CMakeLists.txt.user
+
+# Build and install folders at project root
+/*build*/
+/install*/
+
+# Generated documentation
+/doc/html
+
+# C++ Lang Server folder
+/.ccls-cache*/

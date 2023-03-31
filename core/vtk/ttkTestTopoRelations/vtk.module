@@ -1,0 +1,4 @@
+NAME
+  ttkTestTopoRelations
+DEPENDS
+  ttkAlgorithm
