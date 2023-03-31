@@ -1,3 +1,4 @@
+
 #pragma once
 
 // base code includes
@@ -8,6 +9,7 @@
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
 #include <list>
+#include <map>
 #include <set>
 #include <string>
 
@@ -20,6 +22,7 @@
 
 #define EDGE_ID 1
 #define TRIANGLE_ID 2
+#define PRINT_WAITING_TIME 1
 
 namespace ttk {
 
@@ -28,64 +31,89 @@ namespace ttk {
     /* components */
     SimplexId nid;
     /* boundary cells */
-    std::vector<bool> boundaryVertices_;
-    std::vector<bool> boundaryEdges_;
-    std::vector<bool> boundaryTriangles_;
+    std::vector<std::vector<bool>> boundaryVertices_;
+    std::vector<std::vector<bool>> boundaryEdges_;
+    std::vector<std::vector<bool>> boundaryTriangles_;
     /* vertex relations */
-    FlatJaggedArray vertexEdges_;
-    FlatJaggedArray vertexLinks_;
-    FlatJaggedArray vertexNeighbors_;
-    FlatJaggedArray vertexStars_;
-    FlatJaggedArray vertexTriangles_;
+    std::vector<FlatJaggedArray> vertexEdges_;
+    std::vector<FlatJaggedArray> vertexLinks_;
+    std::vector<FlatJaggedArray> vertexNeighbors_;
+    std::vector<FlatJaggedArray> vertexStars_;
+    std::vector<FlatJaggedArray> vertexTriangles_;
     /* edge relations */
     // edgeVertex relation can be extracted from internal edge list
-    FlatJaggedArray edgeLinks_;
-    FlatJaggedArray edgeStars_;
-    FlatJaggedArray edgeTriangles_;
+    std::vector<FlatJaggedArray> edgeLinks_;
+    std::vector<FlatJaggedArray> edgeStars_;
+    std::vector<FlatJaggedArray> edgeTriangles_;
     /* triangle relations */
     // triangleVertex relation can be extracted from internal triangle list
-    std::vector<std::array<SimplexId, 3>> triangleEdges_;
-    FlatJaggedArray triangleLinks_;
-    FlatJaggedArray triangleStars_;
+    std::vector<std::vector<std::array<SimplexId, 3>>> triangleEdges_;
+    std::vector<FlatJaggedArray> triangleLinks_;
+    std::vector<FlatJaggedArray> triangleStars_;
     /* cell relations */
-    std::vector<std::array<SimplexId, 6>> tetraEdges_;
-    FlatJaggedArray cellNeighbors_;
-    std::vector<std::array<SimplexId, 4>> tetraTriangles_;
+    std::vector<std::vector<std::array<SimplexId, 6>>> tetraEdges_;
+    std::vector<FlatJaggedArray> cellNeighbors_;
+    std::vector<std::vector<std::array<SimplexId, 4>>> tetraTriangles_;
 
   public:
     ImplicitCluster() {
     }
-    ImplicitCluster(SimplexId id) : nid(id) {
+    ImplicitCluster(SimplexId id, SimplexId num) : nid(id) {
+      /* boundary cells */
+      boundaryVertices_ = std::vector<std::vector<bool>>(num);
+      boundaryEdges_ = std::vector<std::vector<bool>>(num);
+      boundaryTriangles_ = std::vector<std::vector<bool>>(num);
+      /* vertex relations */
+      vertexEdges_ = std::vector<FlatJaggedArray>(num);
+      vertexLinks_ = std::vector<FlatJaggedArray>(num);
+      vertexNeighbors_ = std::vector<FlatJaggedArray>(num);
+      vertexStars_ = std::vector<FlatJaggedArray>(num);
+      vertexTriangles_ = std::vector<FlatJaggedArray>(num);
+      /* edge relations */
+      // edgeVertex relation can be extracted from internal edge list
+      edgeLinks_ = std::vector<FlatJaggedArray>(num);
+      edgeStars_ = std::vector<FlatJaggedArray>(num);
+      edgeTriangles_ = std::vector<FlatJaggedArray>(num);
+      /* triangle relations */
+      // triangleVertex relation can be extracted from internal triangle list
+      triangleEdges_ = std::vector<std::vector<std::array<SimplexId, 3>>>(num);
+      triangleLinks_ = std::vector<FlatJaggedArray>(num);
+      triangleStars_ = std::vector<FlatJaggedArray>(num);
+      /* cell relations */
+      tetraEdges_ = std::vector<std::vector<std::array<SimplexId, 6>>>(num);
+      cellNeighbors_ = std::vector<FlatJaggedArray>(num);
+      tetraTriangles_ = std::vector<std::vector<std::array<SimplexId, 4>>>(num);
     }
     ~ImplicitCluster() {
     }
-    inline void clear() {
+
+    inline void clear(const ThreadId consumerId) {
       // keep the edge and triangle lists
       /* boundary cells */
-      boundaryVertices_ = std::vector<bool>{};
-      boundaryEdges_ = std::vector<bool>{};
+      boundaryVertices_[consumerId] = std::vector<bool>{};
+      boundaryEdges_[consumerId] = std::vector<bool>{};
       // keep boundary triangles 
       // boundaryTriangles_ = std::vector<bool>{};
       /* vertex relations */
-      vertexEdges_ = FlatJaggedArray{};
-      vertexLinks_ = FlatJaggedArray{};
-      vertexNeighbors_ = FlatJaggedArray{};
-      vertexStars_ = FlatJaggedArray{};
-      vertexTriangles_ = FlatJaggedArray{};
+      vertexEdges_[consumerId] = FlatJaggedArray{};
+      vertexLinks_[consumerId] = FlatJaggedArray{};
+      vertexNeighbors_[consumerId] = FlatJaggedArray{};
+      vertexStars_[consumerId] = FlatJaggedArray{};
+      vertexTriangles_[consumerId] = FlatJaggedArray{};
       /* edge relations */
       // edgeVertex relation can be extracted from internal edge list
-      edgeLinks_ = FlatJaggedArray{};
-      edgeStars_ = FlatJaggedArray{};
-      edgeTriangles_ = FlatJaggedArray{};
+      edgeLinks_[consumerId] = FlatJaggedArray{};
+      edgeStars_[consumerId] = FlatJaggedArray{};
+      edgeTriangles_[consumerId] = FlatJaggedArray{};
       /* triangle relations */
       // triangleVertex relation can be extracted from internal triangle list
-      triangleEdges_ = std::vector<std::array<SimplexId, 3>>{};
-      triangleLinks_ = FlatJaggedArray{};
-      triangleStars_ = FlatJaggedArray{};
+      triangleEdges_[consumerId] = std::vector<std::array<SimplexId, 3>>{};
+      triangleLinks_[consumerId] = FlatJaggedArray{};
+      triangleStars_[consumerId] = FlatJaggedArray{};
       /* cell relations */
-      tetraEdges_ = std::vector<std::array<SimplexId, 6>>{};
-      cellNeighbors_ = FlatJaggedArray{};
-      tetraTriangles_ = std::vector<std::array<SimplexId, 4>>{};
+      tetraEdges_[consumerId] = std::vector<std::array<SimplexId, 6>>{};
+      cellNeighbors_[consumerId] = FlatJaggedArray{};
+      tetraTriangles_[consumerId] = std::vector<std::array<SimplexId, 4>>{};
     }
 
     friend class AcTopo;
@@ -94,8 +122,11 @@ namespace ttk {
   class AcTopo final : public AbstractTriangulation {
 
   public:
+    #ifdef PRINT_WAITING_TIME
     // Keep track of timings
-    mutable double relationTime_, waitingTime_;
+    mutable std::vector<double> waitingTimes_;
+    mutable std::vector<int> missCnts_;
+    #endif
     mutable std::ofstream consumerFile_, producerFile_, logFile_;
 
     const std::vector<std::string> RelationNames = {
@@ -232,18 +263,21 @@ namespace ttk {
       SimplexId nid = vertexIndices_[cellArray_->getCellVertex(cellId, 0)];
       SimplexId localCellId = cellId - cellIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].tetraEdges_.empty()) {
+      if(allClusters_[nid].tetraEdges_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::TERelation);
+        waitForRelation(nid, RelationType::TERelation, tid);
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
       if(localEdgeId >= (int)(allClusters_[nid].tetraEdges_)[localCellId].size())
         return -2;
 #endif
-      edgeId = (allClusters_[nid].tetraEdges_)[localCellId][localEdgeId];
-
+      edgeId = (allClusters_[nid].tetraEdges_[tid])[localCellId][localEdgeId];
       return 0;
     }
 
@@ -264,12 +298,12 @@ namespace ttk {
       if(cellEdgeVector_.empty()) {
         cellEdgeVector_.reserve(cellNumber_);
         for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
-          if(allClusters_[nid].tetraEdges_.empty()) {
-            getClusterCellEdges(nid);
+          if(allClusters_[nid].tetraEdges_[0].empty()) {
+            getClusterCellEdges(nid, 0);
           }
-          for(size_t i = 0; i < allClusters_[nid].tetraEdges_.size(); i++) {
-            cellEdgeVector_.push_back({allClusters_[nid].tetraEdges_[i].begin(),
-                                       allClusters_[nid].tetraEdges_[i].end()});
+          for(size_t i = 0; i < allClusters_[nid].tetraEdges_[0].size(); i++) {
+            cellEdgeVector_.push_back({allClusters_[nid].tetraEdges_[0][i].begin(),
+                                       allClusters_[nid].tetraEdges_[0][i].end()});
           }
         }
       }
@@ -291,17 +325,21 @@ namespace ttk {
       SimplexId nid = vertexIndices_[cellArray_->getCellVertex(cellId, 0)];
       SimplexId localCellId = cellId - cellIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].cellNeighbors_.empty()) {
+      if(allClusters_[nid].cellNeighbors_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::TTRelation);
+        waitForRelation(nid, RelationType::TTRelation, tid);
       }
       
 #ifndef TTK_ENABLE_KAMIKAZE
       if(localNeighborId >= allClusters_[nid].cellNeighbors_.size(localCellId))  
         return -2;
 #endif
-      neighborId = allClusters_[nid].cellNeighbors_.get(localCellId, localNeighborId);
+      neighborId = allClusters_[nid].cellNeighbors_[tid].get(localCellId, localNeighborId);
       return 0;
     }
 
@@ -316,12 +354,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[cellArray_->getCellVertex(cellId, 0)];
       SimplexId localCellId = cellId - cellIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
       if(allClusters_[nid].cellNeighbors_.empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::TTRelation);
+        waitForRelation(nid, RelationType::TTRelation, tid);
       }
-      return allClusters_[nid].cellNeighbors_.size(localCellId);
+
+      return allClusters_[nid].cellNeighbors_[tid].size(localCellId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -329,10 +372,10 @@ namespace ttk {
       cellNeighborList_.reserve(cellNumber_);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localCellNeighbors;
-        if(allClusters_[nid].cellNeighbors_.empty()) {
-          getClusterCellNeighbors(nid);
+        if(allClusters_[nid].cellNeighbors_[0].empty()) {
+          getClusterCellNeighbors(nid, 0);
         }
-        allClusters_[nid].cellNeighbors_.copyTo(localCellNeighbors);
+        allClusters_[nid].cellNeighbors_[0].copyTo(localCellNeighbors);
         cellNeighborList_.insert(cellNeighborList_.end(),
                                  localCellNeighbors.begin(),
                                  localCellNeighbors.end());
@@ -355,13 +398,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[cellArray_->getCellVertex(cellId, 0)];
       SimplexId localCellId = cellId - cellIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].tetraTriangles_.empty()) {
+      if(allClusters_[nid].tetraTriangles_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::TFRelation);
+        waitForRelation(nid, RelationType::TFRelation, tid);
       }
 
-      triangleId = (allClusters_[nid].tetraTriangles_)[localCellId][localTriangleId];
+      triangleId = (allClusters_[nid].tetraTriangles_[tid])[localCellId][localTriangleId];
       return 0;
     }
 
@@ -383,13 +430,13 @@ namespace ttk {
         cellTriangleVector_.reserve(cellNumber_);
         std::bitset<5> type(8);
         for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
-          if(allClusters_[nid].tetraTriangles_.empty()) {
-            getClusterCellTriangles(nid);
+          if(allClusters_[nid].tetraTriangles_[0].empty()) {
+            getClusterCellTriangles(nid, 0);
           }
-          for(size_t i = 0; i < allClusters_[nid].tetraTriangles_.size(); i++) {
+          for(size_t i = 0; i < allClusters_[nid].tetraTriangles_[0].size(); i++) {
             cellTriangleVector_.push_back(
-              {allClusters_[nid].tetraTriangles_[i].begin(),
-               allClusters_[nid].tetraTriangles_[i].end()});
+              {allClusters_[nid].tetraTriangles_[0][i].begin(),
+               allClusters_[nid].tetraTriangles_[0][i].end()});
           }
         }
       }
@@ -409,7 +456,6 @@ namespace ttk {
         return -2;
 #endif
 
-      // Timer t;
       vertexId = cellArray_->getCellVertex(cellId, localVertexId);
       return 0;
     }
@@ -448,6 +494,10 @@ namespace ttk {
 
       SimplexId nid = vertexIndices_[edgeList_[edgeId][0]];
       SimplexId localEdgeId = edgeId - edgeIntervals_[nid - 1] - 1;
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
 
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
       if(allClusters_[nid].edgeLinks_.empty()) {
@@ -456,10 +506,10 @@ namespace ttk {
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localLinkId >= allClusters_[nid].edgeLinks_.size(localEdgeId))
+      if(localLinkId >= allClusters_[nid].edgeLinks_[tid].size(localEdgeId))
         return -2;
 #endif
-      linkId = allClusters_[nid].edgeLinks_.get(localEdgeId, localLinkId);
+      linkId = allClusters_[nid].edgeLinks_[tid].get(localEdgeId, localLinkId);
 
       return 0;
     }
@@ -474,13 +524,17 @@ namespace ttk {
 
       SimplexId nid = vertexIndices_[edgeList_[edgeId][0]];
       SimplexId localEdgeId = edgeId - edgeIntervals_[nid - 1] - 1;
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
 
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].edgeLinks_.empty()) {
+      if(allClusters_[nid].edgeLinks_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::ELRelation);
+        waitForRelation(nid, RelationType::ELRelation, tid);
       }
-      return allClusters_[nid].edgeLinks_.size(localEdgeId);
+      return allClusters_[nid].edgeLinks_[tid].size(localEdgeId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -488,10 +542,10 @@ namespace ttk {
       edgeLinkList_.reserve(edgeIntervals_.back() + 1);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localEdgeLinks;
-        if(allClusters_[nid].edgeLinks_.empty()) {
-          getClusterEdgeLinks(nid);
+        if(allClusters_[nid].edgeLinks_[0].empty()) {
+          getClusterEdgeLinks(nid, 0);
         }
-        allClusters_[nid].edgeLinks_.copyTo(localEdgeLinks);
+        allClusters_[nid].edgeLinks_[0].copyTo(localEdgeLinks);
         edgeLinkList_.insert(
           edgeLinkList_.end(), localEdgeLinks.begin(), localEdgeLinks.end());
       }
@@ -512,18 +566,22 @@ namespace ttk {
 
       SimplexId nid = vertexIndices_[edgeList_[edgeId][0]];
       SimplexId localEdgeId = edgeId - edgeIntervals_[nid - 1] - 1;
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
 
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
       if(allClusters_[nid].edgeStars_.empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::ETRelation);
+        waitForRelation(nid, RelationType::ETRelation, tid);
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localStarId >= allClusters_[nid].edgeStars_.size(localEdgeId))
+      if(localStarId >= allClusters_[nid].edgeStars_[tid].size(localEdgeId))
         return -2;
 #endif
-      starId = allClusters_[nid].edgeStars_.get(localEdgeId, localStarId);
+      starId = allClusters_[nid].edgeStars_[tid].get(localEdgeId, localStarId);
 
       return 0;
     }
@@ -539,14 +597,16 @@ namespace ttk {
       SimplexId nid = vertexIndices_[edgeList_[edgeId][0]];
       SimplexId localEdgeId = edgeId - edgeIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].edgeStars_.empty()) {
+      if(allClusters_[nid].edgeStars_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::ETRelation);
+        waitForRelation(nid, RelationType::ETRelation, tid);
       }
-      SimplexId number = allClusters_[nid].edgeStars_.size(localEdgeId);
-
-      return number;
+      return allClusters_[nid].edgeStars_[tid].size(localEdgeId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -554,10 +614,10 @@ namespace ttk {
       edgeStarList_.reserve(edgeIntervals_.back() + 1);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localEdgeStars;
-        if(allClusters_[nid].edgeStars_.empty()) {
-          getClusterEdgeStars(nid);
+        if(allClusters_[nid].edgeStars_[0].empty()) {
+          getClusterEdgeStars(nid, 0);
         }
-        allClusters_[nid].edgeStars_.copyTo(localEdgeStars);
+        allClusters_[nid].edgeStars_[0].copyTo(localEdgeStars);
         edgeStarList_.insert(
           edgeStarList_.end(), localEdgeStars.begin(), localEdgeStars.end());
       }
@@ -578,18 +638,21 @@ namespace ttk {
       SimplexId nid = vertexIndices_[edgeList_[edgeId][0]];
       SimplexId localEdgeId = edgeId - edgeIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].edgeTriangles_.empty()) {
+      if(allClusters_[nid].edgeTriangles_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::EFRelation);
+        waitForRelation(nid, RelationType::EFRelation, tid);
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localTriangleId >= allClusters_[nid].edgeTriangles_.size(localEdgeId))
+      if(localTriangleId >= allClusters_[nid].edgeTriangles_[tid].size(localEdgeId))
         return -2;
 #endif
-      triangleId = allClusters_[nid].edgeTriangles_.get(localEdgeId, localTriangleId);
-
+      triangleId = allClusters_[nid].edgeTriangles_[tid].get(localEdgeId, localTriangleId);
       return 0;
     }
 
@@ -604,14 +667,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[edgeList_[edgeId][0]];
       SimplexId localEdgeId = edgeId - edgeIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].edgeTriangles_.empty()) {
+      if(allClusters_[nid].edgeTriangles_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::EFRelation);
+        waitForRelation(nid, RelationType::EFRelation, tid);
       }
 
-      SimplexId number = allClusters_[nid].edgeTriangles_.size(localEdgeId);
-      return number;
+      return allClusters_[nid].edgeTriangles_[tid].size(localEdgeId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -620,10 +686,10 @@ namespace ttk {
       std::bitset<5> type(2);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localEdgeTriangles;
-        if(allClusters_[nid].edgeTriangles_.empty()) {
-          getClusterEdgeTriangles(nid);
+        if(allClusters_[nid].edgeTriangles_[0].empty()) {
+          getClusterEdgeTriangles(nid, 0);
         }
-        allClusters_[nid].edgeTriangles_.copyTo(localEdgeTriangles);
+        allClusters_[nid].edgeTriangles_[0].copyTo(localEdgeTriangles);
         edgeTriangleList_.insert(edgeTriangleList_.end(),
                                  localEdgeTriangles.begin(),
                                  localEdgeTriangles.end());
@@ -707,13 +773,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[triangleList_[triangleId][0]];
       SimplexId localTriangleId = triangleId - triangleIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].triangleEdges_.empty()) {
+      if(allClusters_[nid].triangleEdges_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::FERelation);
+        waitForRelation(nid, RelationType::FERelation, tid);
       }
 
-      edgeId = (allClusters_[nid].triangleEdges_)[localTriangleId][localEdgeId];
+      edgeId = (allClusters_[nid].triangleEdges_[tid])[localTriangleId][localEdgeId];
       return 0;
     }
 
@@ -734,13 +804,13 @@ namespace ttk {
         triangleEdgeVector_.reserve(triangleIntervals_.size() + 1);
         std::bitset<5> type(4);
         for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
-          if(allClusters_[nid].triangleEdges_.empty()) {
-            getClusterTriangleEdges(nid);
+          if(allClusters_[nid].triangleEdges_[0].empty()) {
+            getClusterTriangleEdges(nid, 0);
           }
-          for(size_t i = 0; i < allClusters_[nid].triangleEdges_.size(); i++) {
+          for(size_t i = 0; i < allClusters_[nid].triangleEdges_[0].size(); i++) {
             triangleEdgeVector_.push_back(
-              {allClusters_[nid].triangleEdges_[i].begin(),
-               allClusters_[nid].triangleEdges_[i].end()});
+              {allClusters_[nid].triangleEdges_[0][i].begin(),
+               allClusters_[nid].triangleEdges_[0][i].end()});
           }
         }
       }
@@ -762,17 +832,21 @@ namespace ttk {
       SimplexId nid = vertexIndices_[triangleList_[triangleId][0]];
       SimplexId localTriangleId = triangleId - triangleIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].triangleLinks_.empty()) {
+      if(allClusters_[nid].triangleLinks_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::FLRelation);
+        waitForRelation(nid, RelationType::FLRelation, tid);
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localLinkId >= allClusters_[nid].triangleLinks_.size(localTriangleId))
+      if(localLinkId >= allClusters_[nid].triangleLinks_[tid].size(localTriangleId))
         return -2;
 #endif
-      linkId = allClusters_[nid].triangleLinks_.get(localTriangleId, localLinkId);
+      linkId = allClusters_[nid].triangleLinks_[tid].get(localTriangleId, localLinkId);
       return 0;
     }
 
@@ -787,13 +861,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[triangleList_[triangleId][0]];
       SimplexId localTriangleId = triangleId - triangleIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].triangleLinks_.empty()) {
+      if(allClusters_[nid].triangleLinks_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::FLRelation);
+        waitForRelation(nid, RelationType::FLRelation, tid);
       }
 
-      return allClusters_[nid].triangleLinks_.size(localTriangleId);
+      return allClusters_[nid].triangleLinks_[tid].size(localTriangleId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -801,10 +879,10 @@ namespace ttk {
       triangleLinkList_.reserve(triangleIntervals_.back() + 1);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localTriangleLinks;
-        if(allClusters_[nid].triangleLinks_.empty()) {
-          getClusterTriangleLinks(nid);
+        if(allClusters_[nid].triangleLinks_[0].empty()) {
+          getClusterTriangleLinks(nid, 0);
         }
-        allClusters_[nid].triangleLinks_.copyTo(localTriangleLinks);
+        allClusters_[nid].triangleLinks_[0].copyTo(localTriangleLinks);
         triangleLinkList_.insert(triangleLinkList_.end(),
                                  localTriangleLinks.begin(),
                                  localTriangleLinks.end());
@@ -828,17 +906,21 @@ namespace ttk {
       SimplexId nid = vertexIndices_[triangleList_[triangleId][0]];
       SimplexId localTriangleId = triangleId - triangleIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].triangleStars_.empty()) {
+      if(allClusters_[nid].triangleStars_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::FTRelation);
+        waitForRelation(nid, RelationType::FTRelation, tid);
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localStarId >= allClusters_[nid].triangleStars_.size(localTriangleId))
+      if(localStarId >= allClusters_[nid].triangleStars_[tid].size(localTriangleId))
         return -2;
 #endif
-      starId = allClusters_[nid].triangleStars_.get(localTriangleId, localStarId);
+      starId = allClusters_[nid].triangleStars_[tid].get(localTriangleId, localStarId);
       return 0;
     }
 
@@ -854,13 +936,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[triangleList_[triangleId][0]];
       SimplexId localTriangleId = triangleId - triangleIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].triangleStars_.empty()) {
+      if(allClusters_[nid].triangleStars_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::FTRelation);
+        waitForRelation(nid, RelationType::FTRelation, tid);
       }
       
-      return allClusters_[nid].triangleStars_.size(localTriangleId);
+      return allClusters_[nid].triangleStars_[tid].size(localTriangleId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -868,9 +954,10 @@ namespace ttk {
       triangleStarList_.reserve(triangleIntervals_.back() + 1);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localTriangleStars;
-        if(allClusters_[nid].triangleStars_.empty()) {
-          getClusterTriangleStars(nid);
+        if(allClusters_[nid].triangleStars_[0].empty()) {
+          getClusterTriangleStars(nid, 0);
         }
+        allClusters_[nid].triangleStars_[0].copyTo(localTriangleStars);
         triangleStarList_.insert(triangleStarList_.end(),
                                  localTriangleStars.begin(),
                                  localTriangleStars.end());
@@ -904,21 +991,24 @@ namespace ttk {
         return -2;
 #endif
 
-      // Timer t;
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexEdges_.empty()) {
+      if(allClusters_[nid].vertexEdges_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VERelation);
+        waitForRelation(nid, RelationType::VERelation, tid);
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localEdgeId >= allClusters_[nid].vertexEdges_.size(localVertexId))
+      if(localEdgeId >= allClusters_[nid].vertexEdges_[tid].size(localVertexId))
         return -2;
 #endif
-      edgeId = allClusters_[nid].vertexEdges_.get(localVertexId, localEdgeId);
+      edgeId = allClusters_[nid].vertexEdges_[tid].get(localVertexId, localEdgeId);
 
       return 0;
     }
@@ -934,14 +1024,16 @@ namespace ttk {
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexEdges_.empty()) {
+      if(allClusters_[nid].vertexEdges_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VERelation);
+        waitForRelation(nid, RelationType::VERelation, tid);
       }
-      SimplexId number = allClusters_[nid].vertexEdges_.size(localVertexId);
-
-      return number;
+      return allClusters_[nid].vertexEdges_[tid].size(localVertexId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -950,10 +1042,10 @@ namespace ttk {
       std::bitset<5> type(1);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localVertexEdges;
-        if(allClusters_[nid].vertexEdges_.empty()) {
-          getClusterVertexEdges(nid);
+        if(allClusters_[nid].vertexEdges_[0].empty()) {
+          getClusterVertexEdges(nid, 0);
         }
-        allClusters_[nid].vertexEdges_.copyTo(localVertexEdges);
+        allClusters_[nid].vertexEdges_[0].copyTo(localVertexEdges);
         vertexEdgeList_.insert(vertexEdgeList_.end(), localVertexEdges.begin(),
                                localVertexEdges.end());
       }
@@ -973,20 +1065,22 @@ namespace ttk {
         return -2;
 #endif
 
-      // Timer t;
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
-
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexLinks_.empty()) {
+      if(allClusters_[nid].vertexLinks_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VLRelation);
+        waitForRelation(nid, RelationType::VLRelation, tid);
       }
 
-      if(localLinkId >= allClusters_[nid].vertexLinks_.size(localVertexId)) {
+      if(localLinkId >= allClusters_[nid].vertexLinks_[tid].size(localVertexId)) {
         linkId = -2;
       } else {
-        linkId = allClusters_[nid].vertexLinks_.get(localVertexId, localLinkId);
+        linkId = allClusters_[nid].vertexLinks_[tid].get(localVertexId, localLinkId);
       }
 
       return 0;
@@ -1003,14 +1097,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexLinks_.empty()) {
+      if(allClusters_[nid].vertexLinks_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VLRelation);
+        waitForRelation(nid, RelationType::VLRelation, tid);
       }
 
-      SimplexId number = allClusters_[nid].vertexLinks_.size(localVertexId);
-      return number;
+      return allClusters_[nid].vertexLinks_[tid].size(localVertexId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -1018,10 +1115,10 @@ namespace ttk {
       vertexLinkList_.reserve(vertexIntervals_.back() + 1);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localVertexLinks;
-        if(allClusters_[nid].vertexLinks_.empty()) {
-          getClusterVertexLinks(nid);
+        if(allClusters_[nid].vertexLinks_[0].empty()) {
+          getClusterVertexLinks(nid, 0);
         }
-        allClusters_[nid].vertexLinks_.copyTo(localVertexLinks);
+        allClusters_[nid].vertexLinks_[0].copyTo(localVertexLinks);
         vertexLinkList_.insert(vertexLinkList_.end(), localVertexLinks.begin(),
                                localVertexLinks.end());
       }
@@ -1039,22 +1136,25 @@ namespace ttk {
         return -2;
 #endif
 
-      // Timer t;
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexNeighbors_.empty()) {
+      if(allClusters_[nid].vertexNeighbors_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VVRelation);
+        waitForRelation(nid, RelationType::VVRelation, tid);
       }
       
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localNeighborId >= allClusters_[nid].vertexNeighbors_.size(localVertexId)) {
+      if(localNeighborId >= allClusters_[nid].vertexNeighbors_[tid].size(localVertexId)) {
         return -2;
 #endif
       neighborId
-        = allClusters_[nid].vertexNeighbors_.get(localVertexId, localNeighborId);
+        = allClusters_[nid].vertexNeighbors_[tid].get(localVertexId, localNeighborId);
 
       return 0;
     }
@@ -1070,14 +1170,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexNeighbors_.empty()) {
+      if(allClusters_[nid].vertexNeighbors_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VVRelation);
+        waitForRelation(nid, RelationType::VVRelation, tid);
       }
 
-      SimplexId number = allClusters_[nid].vertexNeighbors_.size(localVertexId);
-      return number;
+      return allClusters_[nid].vertexNeighbors_[tid].size(localVertexId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -1085,10 +1188,10 @@ namespace ttk {
       vertexNeighborList_.reserve(vertexNumber_);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localVertexNeighbors;
-        if(allClusters_[nid].vertexNeighbors_.empty()) {
-          getClusterVertexNeighbors(nid);
+        if(allClusters_[nid].vertexNeighbors_[0].empty()) {
+          getClusterVertexNeighbors(nid, 0);
         }
-        allClusters_[nid].vertexNeighbors_.copyTo(localVertexNeighbors);
+        allClusters_[nid].vertexNeighbors_[0].copyTo(localVertexNeighbors);
         vertexNeighborList_.insert(vertexNeighborList_.end(),
                                    localVertexNeighbors.begin(),
                                    localVertexNeighbors.end());
@@ -1130,21 +1233,24 @@ namespace ttk {
         return -2;
 #endif
 
-      // Timer t;
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexStars_.empty()) {
+      if(allClusters_[nid].vertexStars_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VTRelation);
+        waitForRelation(nid, RelationType::VTRelation, tid);
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localStarId >= allClusters_[nid].vertexStars_.size(localVertexId))
+      if(localStarId >= allClusters_[nid].vertexStars_[tid].size(localVertexId))
         return -2;
 #endif
-      starId = allClusters_[nid].vertexStars_.get(localVertexId, localStarId);
+      starId = allClusters_[nid].vertexStars_[tid].get(localVertexId, localStarId);
       return 0;
     }
 
@@ -1159,14 +1265,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexStars_.empty()) {
+      if(allClusters_[nid].vertexStars_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VTRelation);
+        waitForRelation(nid, RelationType::VTRelation, tid);
       }
 
-      SimplexId number = allClusters_[nid].vertexStars_.size(localVertexId);
-      return number;
+      return allClusters_[nid].vertexStars_[tid].size(localVertexId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -1174,10 +1283,10 @@ namespace ttk {
       vertexStarList_.reserve(vertexNumber_);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localVertexStars;
-        if(allClusters_[nid].vertexStars_.empty()) {
-          getClusterVertexStars(nid);
+        if(allClusters_[nid].vertexStars_[0].empty()) {
+          getClusterVertexStars(nid, 0);
         }
-        allClusters_[nid].vertexStars_.copyTo(localVertexStars);
+        allClusters_[nid].vertexStars_[0].copyTo(localVertexStars);
         vertexStarList_.insert(vertexStarList_.end(), localVertexStars.begin(),
                                localVertexStars.end());
       }
@@ -1195,21 +1304,25 @@ namespace ttk {
         return -2;
 #endif
 
-      // Timer t;
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
-      if(allClusters_[nid].vertexTriangles_.empty()) {
-        // getClusterVertexTriangles(nid);
-        waitForRelation(nid, RelationType::VFRelation);
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
+      std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
+      if(allClusters_[nid].vertexTriangles_[tid].empty()) {
+        clck.unlock();
+        waitForRelation(nid, RelationType::VFRelation, tid);
       }
 
 #ifndef TTK_ENABLE_KAMIKAZE
-      if(localTriangleId >= allClusters_[nid].vertexTriangles_.size(localVertexId)) {
+      if(localTriangleId >= allClusters_[nid].vertexTriangles_[tid].size(localVertexId)) {
         return -2;
 #endif
       triangleId
-        = allClusters_[nid].vertexTriangles_.get(localVertexId, localTriangleId);
+        = allClusters_[nid].vertexTriangles_[tid].get(localVertexId, localTriangleId);
 
       return 0;
     }
@@ -1225,15 +1338,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].vertexTriangles_.empty()) {
+      if(allClusters_[nid].vertexTriangles_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::VFRelation);
+        waitForRelation(nid, RelationType::VFRelation, tid);
       }
 
-      SimplexId number = allClusters_[nid].vertexTriangles_.size(localVertexId);
-
-      return number;
+      return allClusters_[nid].vertexTriangles_[tid].size(localVertexId);
     }
 
     inline const std::vector<std::vector<SimplexId>> *
@@ -1242,10 +1357,10 @@ namespace ttk {
       std::bitset<5> type(2);
       for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
         std::vector<std::vector<SimplexId>> localVertexTriangles;
-        if(allClusters_[nid].vertexTriangles_.empty()) {
-          getClusterVertexTriangles(nid);
+        if(allClusters_[nid].vertexTriangles_[0].empty()) {
+          getClusterVertexTriangles(nid, 0);
         }
-        allClusters_[nid].vertexTriangles_.copyTo(localVertexTriangles);
+        allClusters_[nid].vertexTriangles_[0].copyTo(localVertexTriangles);
         vertexTriangleList_.insert(vertexTriangleList_.end(),
                                    localVertexTriangles.begin(),
                                    localVertexTriangles.end());
@@ -1262,13 +1377,17 @@ namespace ttk {
       SimplexId nid = vertexIndices_[edgeList_[edgeId][0]];
       SimplexId localEdgeId = edgeId - edgeIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].boundaryEdges_.empty()) {
+      if(allClusters_[nid].boundaryEdges_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::BERelation);
+        waitForRelation(nid, RelationType::BERelation, tid);
       }
 
-      return (allClusters_[nid].boundaryEdges_)[localEdgeId];
+      return (allClusters_[nid].boundaryEdges_[tid])[localEdgeId];
     }
 
     bool isEmpty() const override {
@@ -1287,7 +1406,7 @@ namespace ttk {
       SimplexId nid = vertexIndices_[triangleList_[triangleId][0]];
       SimplexId localTriangleId = triangleId - triangleIntervals_[nid - 1] - 1;
 
-      return (allClusters_[nid].boundaryTriangles_)[localTriangleId];
+      return (allClusters_[nid].boundaryTriangles_[0])[localTriangleId];
     }
 
     inline bool TTK_TRIANGULATION_INTERNAL(isVertexOnBoundary)(
@@ -1299,32 +1418,100 @@ namespace ttk {
       SimplexId nid = vertexIndices_[vertexId];
       SimplexId localVertexId = vertexId - vertexIntervals_[nid - 1] - 1;
 
+      ThreadId tid = 0;
+      #ifdef TTK_ENABLE_OPENMP
+      tid = omp_get_thread_num();
+      #endif
       std::unique_lock<std::mutex> clck(clusterMutexes_[nid]);
-      if(allClusters_[nid].boundaryVertices_.empty()) {
+      if(allClusters_[nid].boundaryVertices_[tid].empty()) {
         clck.unlock();
-        waitForRelation(nid, RelationType::BVRelation);
+        waitForRelation(nid, RelationType::BVRelation, tid);
       }
 
-      return (allClusters_[nid].boundaryVertices_)[localVertexId];
+      return (allClusters_[nid].boundaryVertices_[tid])[localVertexId];
     }
 
     inline int preconditionBoundaryEdgesInternal() override {
       if(maxCellDim_ == 2) {
         Timer t;
-        currRelation_ = RelationType::IBCList;
-        std::unique_lock<std::mutex> llck(leaderMutex_);
-        precondition_ = true;
-        llck.unlock();
-        leaderCondVar_.notify_one();
-        sem_wait(&semaphores_[0]);
-        printMsg("Boundary edges preconditioned in " + std::to_string(t.getElapsedTime()) + "s.");
+        if(edgeList_.empty()) {
+          clusterEdges_.resize(nodeNumber_ + 1);
+          edgeIntervals_.resize(nodeNumber_ + 1);
+          edgeIntervals_[0] = -1;
+
+          // use the producer threads to compute the edges
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+        for(int i = 0; i < threadNumber_; i++) {
+          std::unique_lock<std::mutex> llck(leaderMutexes_[i]);
+          reqRelations_[i] = RelationType::IBEList;
+          preconditions_[i] = 1;
+          llck.unlock();
+          leaderCondVars_[i].notify_one();
+        }
+
+        SimplexId startNodeId = clustersPerThread_ * (threadNumber_ * numProducers_) + 1;
+  #ifdef TTK_ENABLE_OPENMP
+  #pragma omp parallel for num_threads(threadNumber_)
+  #endif
+          for(SimplexId nid = startNodeId; nid <= nodeNumber_; nid++) {
+            edgeIntervals_[nid] = buildInternalEdgeList(nid, true);
+          }
+
+          for(int i = 0; i < threadNumber_; i++)
+            sem_wait(&semaphores_[i*numProducers_]);
+          for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
+            edgeIntervals_[nid]
+              = edgeIntervals_[nid - 1] + edgeIntervals_[nid];
+          }
+
+          edgeList_.resize(edgeIntervals_.back() + 1);
+  #ifdef TTK_ENABLE_OPENMP
+  #pragma omp parallel for num_threads(threadNumber_)
+  #endif
+          for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
+            int j = edgeIntervals_[nid-1];
+            for (size_t k = 0; k < clusterEdges_[nid].size(); k++) {
+              edgeList_[++j] = std::move(clusterEdges_[nid][k]);
+            }
+          }
+
+          clusterEdges_.clear(); clusterEdges_.shrink_to_fit();
+          printMsg("Edges and boundary edges preconditioned in " + std::to_string(t.getElapsedTime()) + "s.");
+        } else {
+          // use the producer threads to compute boundary edges
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+          for(int i = 0; i < threadNumber_; i++) {
+            std::unique_lock<std::mutex> llck(leaderMutexes_[i]);
+            reqRelations_[i] = RelationType::IBCList;
+            preconditions_[i] = 1;
+            llck.unlock();
+            leaderCondVars_[i].notify_one();
+          }
+          
+          SimplexId startNodeId = clustersPerThread_ * (threadNumber_ * numProducers_) + 1;
+  #ifdef TTK_ENABLE_OPENMP
+  #pragma omp parallel for num_threads(threadNumber_)
+  #endif
+          for(SimplexId nid = startNodeId; nid <= nodeNumber_; nid++) {
+            buildBoundaryTopCellList(nid);
+          }
+
+          for(int i = 0; i < threadNumber_; i++)
+            sem_wait(&semaphores_[i*numProducers_]);
+          printMsg("Boundary edges preconditioned in " + std::to_string(t.getElapsedTime()) + "s.");
+        }
+
       } else if(maxCellDim_ == 3) {
         preconditionBoundaryTriangles();
         relationVec_.push_back(RelationType::BERelation);
       } else {
         // unsupported dimension
         printErr(
-          "[AcTopo] Unsupported dimension for boundary precondtion.");
+          "[AcTopo] Unsupported dimension for boundary precondition.");
         return -1;
       }
       return 0;
@@ -1335,21 +1522,81 @@ namespace ttk {
         return 0;
       } else if(maxCellDim_ == 3) {
         Timer t;
-// #ifdef TTK_ENABLE_OPENMP
-// #pragma omp parallel for num_threads(threadNumber_)
-// #endif
+        if(triangleList_.empty()) {
+          clusterTriangles_.resize(nodeNumber_ + 1);
+          triangleIntervals_.resize(nodeNumber_ + 1);
+          triangleIntervals_[0] = -1;
+
+          // use the producer threads to compute the triangles
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
         // use the producer threads to compute the edges
-        std::unique_lock<std::mutex> llck(leaderMutex_);
-        currRelation_ = RelationType::IBCList;
-        precondition_ = true;
-        llck.unlock();
-        leaderCondVar_.notify_one();
-        sem_wait(&semaphores_[0]);
-        printMsg("Boundary triangles preconditioned in " + std::to_string(t.getElapsedTime()) + "s.");
+        for(int i = 0; i < threadNumber_; i++) {
+          std::unique_lock<std::mutex> llck(leaderMutexes_[i]);
+          reqRelations_[i] = RelationType::IBFList;
+          preconditions_[i] = 1;
+          llck.unlock();
+          leaderCondVars_[i].notify_one();
+        }
+
+          SimplexId startNodeId = clustersPerThread_ * (threadNumber_ * numProducers_) + 1;
+  #ifdef TTK_ENABLE_OPENMP
+  #pragma omp parallel for num_threads(threadNumber_)
+  #endif
+          for(SimplexId nid = startNodeId; nid <= nodeNumber_; nid++) {
+            triangleIntervals_[nid] = buildInternalTriangleList(nid, true);
+          }
+
+          for(int i = 0; i < threadNumber_; i++) 
+            sem_wait(&semaphores_[i*numProducers_]);
+
+          for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
+            triangleIntervals_[nid]
+              = triangleIntervals_[nid - 1] + triangleIntervals_[nid];
+          }
+
+          triangleList_.resize(triangleIntervals_.back() + 1);
+  #ifdef TTK_ENABLE_OPENMP
+  #pragma omp parallel for num_threads(threadNumber_)
+  #endif
+          for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
+            int j = triangleIntervals_[nid-1];
+            for (size_t k = 0; k < clusterTriangles_[nid].size(); k++) {
+              triangleList_[++j] = std::move(clusterTriangles_[nid][k]);
+            }
+          }
+          clusterTriangles_.clear(); clusterTriangles_.shrink_to_fit();
+          printMsg("Triangles and boundary triangles preconditioned in " + std::to_string(t.getElapsedTime()) + "s.");
+        } else {
+          // use the producer threads to compute boundary triangles
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+        // use the producer threads to compute the edges
+        for(int i = 0; i < threadNumber_; i++) {
+          std::unique_lock<std::mutex> llck(leaderMutexes_[i]);
+          reqRelations_[i] = RelationType::IBCList;
+          preconditions_[i] = 1;
+          llck.unlock();
+          leaderCondVars_[i].notify_one();
+        }
+          
+          SimplexId startNodeId = clustersPerThread_ * (threadNumber_ * numProducers_) + 1;
+  #ifdef TTK_ENABLE_OPENMP
+  #pragma omp parallel for num_threads(threadNumber_)
+  #endif
+          for(SimplexId nid = startNodeId; nid <= nodeNumber_; nid++) {
+            buildBoundaryTopCellList(nid);
+          }
+          for(int i = 0; i < threadNumber_; i++) 
+            sem_wait(&semaphores_[i*numProducers_]);
+          printMsg("Boundary triangles preconditioned in " + std::to_string(t.getElapsedTime()) + "s.");
+        }
       } else {
         // unsupported dimension
         printErr(
-          "[AcTopo] Unsupported dimension for boundary precondtion.");
+          "[AcTopo] Unsupported dimension for boundary precondition.");
         return -1;
       }
       return 0;
@@ -1357,9 +1604,15 @@ namespace ttk {
 
     inline int preconditionBoundaryVerticesInternal() override {
       if(maxCellDim_ == 2) {
-        preconditionBoundaryEdges();
+        if(!hasPreconditionedBoundaryEdges_) {
+          preconditionBoundaryEdgesInternal();
+          hasPreconditionedBoundaryEdges_ = true;
+        }
       } else if(maxCellDim_ == 3) {
-        preconditionBoundaryTriangles();
+        if(!hasPreconditionedBoundaryTriangles_) {
+          preconditionBoundaryTrianglesInternal();
+          hasPreconditionedBoundaryTriangles_ = true;
+        }
       }
       relationVec_.push_back(RelationType::BVRelation);
       return 0;
@@ -1400,17 +1653,32 @@ namespace ttk {
         edgeIntervals_[0] = -1;
 
         // use the producer threads to compute the edges
-        std::unique_lock<std::mutex> llck(leaderMutex_);
-        currRelation_ = RelationType::IEList;
-        precondition_ = true;
-        llck.unlock();
-        leaderCondVar_.notify_one();
-        sem_wait(&semaphores_[0]);
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+        for(int i = 0; i < threadNumber_; i++) {
+          std::unique_lock<std::mutex> llck(leaderMutexes_[i]);
+          reqRelations_[i] = RelationType::IEList;
+          preconditions_[i] = 1;
+          llck.unlock();
+          leaderCondVars_[i].notify_one();
+        }
 
+        SimplexId startNodeId = clustersPerThread_ * (threadNumber_ * numProducers_) + 1;
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+        for(SimplexId nid = startNodeId; nid <= nodeNumber_; nid++) {
+          edgeIntervals_[nid] = buildInternalEdgeList(nid);
+        }
+
+        for(int i = 0; i < threadNumber_; i++)
+          sem_wait(&semaphores_[i*numProducers_]);
+        
         for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
           edgeIntervals_[nid] = edgeIntervals_[nid - 1] + edgeIntervals_[nid];
         }
-        edgeList_.reserve(edgeIntervals_.back()+1);
+        edgeList_.reserve(edgeIntervals_.back()+10);
         for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
           for(auto &edge : clusterEdges_[nid]) {
             edgeList_.push_back(std::move(edge));
@@ -1429,7 +1697,7 @@ namespace ttk {
         relationVec_.push_back(RelationType::ELRelation);
       } else {
         // unsupported dimension
-        printErr("Unsupported dimension for edge link precondtion.");
+        printErr("Unsupported dimension for edge link precondition.");
         return -1;
       }
       return 0;
@@ -1465,19 +1733,33 @@ namespace ttk {
         triangleIntervals_[0] = -1;
 
         // use the producer threads to compute the triangles
-        std::unique_lock<std::mutex> llck(leaderMutex_);
-        currRelation_ = RelationType::IFList;
-        precondition_ = true;
-        llck.unlock();
-        leaderCondVar_.notify_one();
-        sem_wait(&semaphores_[0]);
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+        for(int i = 0; i < threadNumber_; i++) {
+          std::unique_lock<std::mutex> llck(leaderMutexes_[i]);
+          reqRelations_[i] = RelationType::IFList;
+          preconditions_[i] = 1;
+          llck.unlock();
+          leaderCondVars_[i].notify_one();
+        }
+        
+        SimplexId startNodeId = clustersPerThread_ * (threadNumber_ * numProducers_) + 1;
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+        for(SimplexId nid = startNodeId; nid <= nodeNumber_; nid++) {
+          triangleIntervals_[nid] = buildInternalTriangleList(nid);
+        }
+
+        for(int i = 0; i < threadNumber_; i++)
+          sem_wait(&semaphores_[i*numProducers_]);
 
         for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
           triangleIntervals_[nid]
             = triangleIntervals_[nid - 1] + triangleIntervals_[nid];
         }
-
-        triangleList_.reserve(triangleIntervals_.back()+1);
+        triangleList_.reserve(triangleIntervals_.back()+10);
         for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
           for(auto &triangle : clusterTriangles_[nid]) {
             triangleList_.push_back(std::move(triangle));
@@ -1517,7 +1799,7 @@ namespace ttk {
         preconditionTrianglesInternal();
       } else {
         // unsupported dimension
-        printErr("Unsupported dimension for vertex link precondtion.");
+        printErr("Unsupported dimension for vertex link precondition.");
         return -1;
       }
       relationVec_.push_back(RelationType::VLRelation);
@@ -1546,11 +1828,11 @@ namespace ttk {
     }
 
     /**
-     * Initialize the buffer with the ratio.
+     * Initialize the buffer size per thread with the given ratio.
      */
     inline void setBufferSize(const float ratio = 0.2f) {
-      bufferSize_ = nodeNumber_ * ratio + 1;
-      this->printMsg("Buffer capacity: " + std::to_string(bufferSize_));
+      bufferSize_ = ratio / threadNumber_ * nodeNumber_ + 1;
+      this->printMsg("Buffer capacity per thread: " + std::to_string(bufferSize_));
     }
 
     /** 
@@ -1558,7 +1840,24 @@ namespace ttk {
      */
     inline void setWorkMode(const int mode) {
       // std::unique_lock<std::mutex> wlock(workerMutex_);
+      #ifdef PRINT_WAITING_TIME
+      missCnts_ = std::vector<int>(threadNumber_, 0);
+      waitingTimes_ = std::vector<double>(threadNumber_, 0.0);
+      #endif
       workMode_ = mode;
+      sharedClusterIds_ = std::vector<SimplexId>(threadNumber_);
+      workerRelations_ = std::vector<RelationType>(threadNumber_);
+      if (workMode_ == 2) {
+        workerRelationIds_ = std::vector<size_t>(threadNumber_);
+      } else if (workMode_ == 3) {
+        workerClusterIds_ = std::vector<size_t>(threadNumber_);
+        workerClusterVecs_ = std::vector<std::vector<SimplexId>>(threadNumber_);
+        workerRelationIds_ = std::vector<size_t>(threadNumber_);
+      } else if (workMode_ == 4) {
+        workerClusterIds_ = std::vector<size_t>(threadNumber_);
+        workerClusterVecs_ = std::vector<std::vector<SimplexId>>(threadNumber_);
+        workerRelations_ = std::vector<RelationType>(threadNumber_);
+      }
       // wlock.unlock();
       this->printMsg("Set the worker mode to " + std::to_string(mode));
     }
@@ -1569,17 +1868,19 @@ namespace ttk {
     inline void setProducerNumber(const int num) {
       if(producers_.empty()) {
         numProducers_ = num;
-        semaphores_ = std::vector<sem_t>(numProducers_+1);
-        producers_ = std::vector<std::thread>(numProducers_);
-        producers_[0] = std::thread(&AcTopo::leaderProcedure, this);
-
-        for(int i = 0; i <= numProducers_; i++) {
-          if(sem_init(&semaphores_[i], 0, 0)) {
-            this->printErr("Cannot initialize the semaphore vector!");
+        int totalProducerNum_ = threadNumber_ * numProducers_;
+        clustersPerThread_ = nodeNumber_ / (totalProducerNum_ + threadNumber_);
+        semaphores_ = std::vector<sem_t>(totalProducerNum_);
+        producers_ = std::vector<std::thread>(totalProducerNum_);
+        finished_ = std::vector<SimplexId>(totalProducerNum_, 1);
+        for (int i = 0; i < threadNumber_; i++) {
+          producers_[i * numProducers_] = std::thread(&AcTopo::leaderProcedure, this, i);
+          if(sem_init(&semaphores_[i*numProducers_], 0, 0)) {
+            this->printErr("Cannot initialize the leader semaphore vector!");
           }
         }
 
-        this->printMsg("Number of producers: " + std::to_string(numProducers_));
+        this->printMsg("Total number of producers: " + std::to_string(totalProducerNum_));
       }
       else {
         this->printErr("Cannot reset the number of producers!");
@@ -1609,14 +1910,14 @@ namespace ttk {
     }
 
     /**
-     * Build the internal edge list in the node.
+     * Build the internal edge list in the cluster.
      */
-    int buildInternalEdgeList(const SimplexId &clusterId);
+    int buildInternalEdgeList(const SimplexId &clusterId, bool buildBoundary = false);
 
     /**
-     * Build the internal triangle list in the node.
+     * Build the internal triangle list in the cluster.
      */
-    int buildInternalTriangleList(const SimplexId &clusterId);
+    int buildInternalTriangleList(const SimplexId &clusterId, bool buildBoundary = false);
 
     /**
      * Build the boundary top cell list in the node. 
@@ -1627,113 +1928,118 @@ namespace ttk {
      * Get the cell edges for all cells in a given node.
      * Check if the tetraEdges_ is NULL before calling the function.
      */
-    int getClusterCellEdges(const SimplexId &clusterId) const;
+    int getClusterCellEdges(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the cell neighbors for all cells in a given node.
      */
-    int getClusterCellNeighbors(const SimplexId &clusterId) const;
+    int getClusterCellNeighbors(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the cell triangles for all cells in a given node.
      */
-    int getClusterCellTriangles(const SimplexId &clusterId) const;
+    int getClusterCellTriangles(const SimplexId &clusterId, const ThreadId &threadId) const;
     /**
      * Get the edge links for all the edges in a given node.
      */
-    int getClusterEdgeLinks(const SimplexId &clusterId) const;
+    int getClusterEdgeLinks(const SimplexId &clusterId, const ThreadId &threadId) const;
     /**
      * Get the edge stars for all the edges in a given node.
      */
-    int getClusterEdgeStars(const SimplexId &clusterId) const;
+    int getClusterEdgeStars(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the edge triangles for all the edges in a given node.
      */
-    int getClusterEdgeTriangles(const SimplexId &clusterId) const;
+    int getClusterEdgeTriangles(const SimplexId &clusterId, const ThreadId &threadId) const;
     /**
      * Get the triangle edges for all the triangles in a given node.
      */
-    int getClusterTriangleEdges(const SimplexId &clusterId) const;
+    int getClusterTriangleEdges(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the triangle links for all the triangles in a given node.
      */
-    int getClusterTriangleLinks(const SimplexId &clusterId) const;
+    int getClusterTriangleLinks(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the triangle stars for all the triangles in a given node.
      */
-    int getClusterTriangleStars(const SimplexId &clusterId) const;
+    int getClusterTriangleStars(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the vertex edges for all the vertices in a given node.
      */
-    int getClusterVertexEdges(const SimplexId &clusterId) const;
+    int getClusterVertexEdges(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the vertex links for all the vertices in a given node.
      */
-    int getClusterVertexLinks(const SimplexId &clusterId) const;
+    int getClusterVertexLinks(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the vertex neighbors for all the vertices in a given node.
      */
-    int getClusterVertexNeighbors(const SimplexId &clusterId) const;
+    int getClusterVertexNeighbors(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the vertex stars for all the vertices in a given node.
      * The function is similar as getVertexCells().
      */
-    int getClusterVertexStars(const SimplexId &clusterId) const;
+    int getClusterVertexStars(const SimplexId &clusterId, const ThreadId &threadId) const;
     int getClusterVertexStarsVector(const SimplexId &clusterId, 
                 std::vector<std::vector<SimplexId>> &vertexStarVec) const;
 
     /**
      * Get the vertex triangles for all the vertices in a given node.
      */
-    int getClusterVertexTriangles(const SimplexId &clusterId) const;
+    int getClusterVertexTriangles(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the boundary vertices in a given node.
      */
-    int getClusterBoundaryVertices(const SimplexId &clusterId) const;
+    int getClusterBoundaryVertices(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Get the boundary edges in a given node.
      */
-    int getClusterBoundaryEdges(const SimplexId &clusterId) const;
+    int getClusterBoundaryEdges(const SimplexId &clusterId, const ThreadId &threadId) const;
 
     /**
      * Compute the required topological relation with the given cluster id and
      * relation type.
      */
     void computeRelation(const SimplexId &clusterId,
-                         const RelationType &relation);
+                         const RelationType &relation,
+                         const ThreadId &threadId);
 
     /**
      * Wait on a topolgoical relation to be computed.
      */
-    inline void waitForRelation(const SimplexId &clusterId, const RelationType &relationId) const {
-      #ifdef TTK_ENABLE_OPENMP
+    inline void waitForRelation(const SimplexId &clusterId,  const RelationType &relationId, const int &consumerId = 0) const {
+      #ifdef PRINT_WAITING_TIME
       double start = omp_get_wtime();
-      #else 
-      Timer t;
-      #endif
-      std::unique_lock<std::mutex> llck(leaderMutex_);
-      currCluster_ = clusterId;
-      currRelation_ = relationId;
-      waiting_ = true;
+      std::unique_lock<std::mutex> llck(leaderMutexes_[consumerId]);
+      reqClusters_[consumerId] = clusterId;
+      reqRelations_[consumerId] = relationId;
+      waitings_[consumerId] = 1;
       llck.unlock();
-      leaderCondVar_.notify_one();
-      sem_wait(&semaphores_[0]);
-      #ifdef TTK_ENABLE_OPENMP
+      leaderCondVars_[consumerId].notify_one();
+      sem_wait(&semaphores_[consumerId * numProducers_]);
       double end = omp_get_wtime();
-      waitingTime_ += (end - start);
+      waitings_[consumerId] = 0;
+      waitingTimes_[consumerId] += (end - start);
+      missCnts_[consumerId]++;
       #else 
-      waitingTime_ += t.getElapsedTime();
+      std::unique_lock<std::mutex> llck(leaderMutexes_[consumerId]);
+      reqClusters_[consumerId] = clusterId;
+      reqRelations_[consumerId] = relationId;
+      waitings_[consumerId] = 1;
+      llck.unlock();
+      leaderCondVars_[consumerId].notify_one();
+      sem_wait(&semaphores_[consumerId * numProducers_]);
+      waitings_[consumerId] = 0;
       #endif
-      missCnt_++;
     }
 
     /**
@@ -1743,13 +2049,13 @@ namespace ttk {
      * - Coordinate other workers;
      * - Clean the memory space.
      */
-    void leaderProcedure();
+    void leaderProcedure(const int &consumerId);
 
     /**
      * The procedure run by the worker producer.
      */
-    void preconditionFunc(const int &workerId);
-    void workerProcedure(const int &workerId);
+    void preconditionFunc(const int &workerId, const int &consumerId);
+    void workerProcedure(const int &workerId, const int &consumerId);
 
     /**
      * Protected class variables.
@@ -1773,34 +2079,34 @@ namespace ttk {
 
     // Buffer system
     size_t bufferSize_;
-    std::mutex bufferMutex_;
     std::vector<std::vector<SimplexId>> connectivity_;
-    std::list<SimplexId> sbuffer_;
-    boost::unordered_set<SimplexId> bufferSet_;
-    mutable size_t missCnt_;
+    std::vector<std::list<SimplexId>> sbuffers_;
+    std::vector<boost::unordered_set<SimplexId>> bufferSets_;
+    std::vector<std::mutex> bufferMutexes_;
 
     // Multithreading support
     int workMode_;
     int numProducers_;
-    bool precondition_;
-    mutable bool waiting_;
-    mutable std::mutex leaderMutex_;
+    int clustersPerThread_;
+    std::vector<int> preconditions_;
+    mutable std::vector<std::mutex> leaderMutexes_;
     mutable std::vector<std::thread> producers_;
+    mutable std::vector<int> waitings_;
     mutable std::vector<sem_t> semaphores_;
-    mutable SimplexId currCluster_;
-    mutable RelationType currRelation_;
-    mutable std::condition_variable leaderCondVar_;
+    mutable std::vector<SimplexId> reqClusters_;
+    mutable std::vector<RelationType> reqRelations_;
+    mutable std::vector<std::condition_variable> leaderCondVars_;
 
     // related to worker producers
-    bool changed_;
-    std::mutex workerMutex_;
-    SimplexId sharedClusterId_;
-    size_t workerClusterIdx_;
-    size_t workerRelationIdx_;
-    RelationType workerRelation_;
+    std::vector<int> changed_;
+    std::vector<std::condition_variable> workerCondVars_;
+    std::vector<std::mutex> workerMutexes_;
+    std::vector<SimplexId> sharedClusterIds_;
+    std::vector<size_t> workerClusterIds_;
+    std::vector<std::vector<SimplexId>> workerClusterVecs_;
+    std::vector<RelationType> workerRelations_;
+    std::vector<size_t> workerRelationIds_;
     std::vector<int> finished_;
-    std::condition_variable workerCondVar_;
-    std::vector<SimplexId> workerClusterVec_;
     mutable std::vector<RelationType> relationVec_;
   };
 } // namespace ttk

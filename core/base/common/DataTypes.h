@@ -95,21 +95,22 @@ namespace ttk {
     // edges and triangles computation
     IEList, // internalEdgeList -- 9
     IFList, // internalTriangleList -- 10
-    IEFList, // intenralEdgeList and internalTriangleList -- 11
-    IBCList, // internalBoundaryCellList -- 12
+    IBEList, // internalEdgeList and boundaryEdgeList -- 11
+    IBFList, // internalTriangleList and boundaryTriangleList -- 12
+    IBCList, // internalBoundaryCellList -- 13
     // require external maps
-    VERelation, // vertexEdge -- 13
-    VFRelation, // vertexTriangle -- 14
-    EFRelation, // edgeTriangle -- 15
-    FERelation, // triangleEdge -- 16
-    TERelation, // cellEdge -- 17
-    TFRelation, // cellTriangle -- 18
-    VLRelation, // vertexLink -- 19
-    ELRelation, // edgeLink -- 20
-    FLRelation, // triangleLink -- 21
-    BVRelation, // boundaryVertex -- 22
-    BERelation, // boundaryEdge -- 23
-    BFRelation, // boundaryTriangle -- 24
+    VERelation, // vertexEdge -- 14
+    VFRelation, // vertexTriangle -- 15
+    EFRelation, // edgeTriangle -- 16
+    FERelation, // triangleEdge -- 17
+    TERelation, // cellEdge -- 18
+    TFRelation, // cellTriangle -- 19
+    VLRelation, // vertexLink -- 20
+    ELRelation, // edgeLink -- 21
+    FLRelation, // triangleLink -- 22
+    BVRelation, // boundaryVertex -- 23
+    BERelation, // boundaryEdge -- 24
+    BFRelation, // boundaryTriangle -- 25
     RelationNum // total number of relations
   };
 

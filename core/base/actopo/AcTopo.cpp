@@ -3,7 +3,7 @@
 #include <algorithm>
 
 #define findEdgeIdx(x, e) std::lower_bound(edgeList_.begin()+edgeIntervals_[x-1]+1, edgeList_.begin()+edgeIntervals_[x]+1, e) - edgeList_.begin() - edgeIntervals_[x-1] - 1
-#define findTriangleIdx(x, e) std::lower_bound(triangleList_.begin()+triangleIntervals_[x-1]+1, triangleList_.begin()+triangleIntervals_[x]+1, e) - triangleList_.begin() - triangleIntervals_[x-1] - 1
+#define findTriangleIdx(x, f) std::lower_bound(triangleList_.begin()+triangleIntervals_[x-1]+1, triangleList_.begin()+triangleIntervals_[x]+1, f) - triangleList_.begin() - triangleIntervals_[x-1] - 1
 
 using namespace ttk;
 
@@ -17,7 +17,7 @@ AcTopo::AcTopo() {
   // if(producerFile_.fail()) {
   //   this->printErr("Cannot open file for producer!");
   // }
-  // logFile_.open("log_AcTopo.txt", std::ofstream::trunc);
+  // logFile_.open("log_topocluster.txt", std::ofstream::trunc);
   // if(logFile_.fail()) {
   //   this->printErr("Cannot open file for logging!");
   // }
@@ -39,30 +39,26 @@ AcTopo::AcTopo(const AcTopo &rhs)
 
 AcTopo::~AcTopo() {
   if(!producers_.empty()) {
-    currCluster_ = -1;
-    std::unique_lock<std::mutex> llck(leaderMutex_);
-    waiting_ = true;
-    llck.unlock();
-    leaderCondVar_.notify_one();
-    for(int i = 0; i < numProducers_; i++) {
-      if(producers_[i].joinable()) {
-        producers_[i].join();
+    for(int i = 0; i < threadNumber_; i++) {
+      std::unique_lock<std::mutex> llck(leaderMutexes_[i]);
+      reqClusters_[i] = -1;
+      waitings_[i] = 1;
+      llck.unlock();
+      leaderCondVars_[i].notify_one();
+    }
+    for(size_t j = 0; j < producers_.size(); j++) {
+      if(producers_[j].joinable()) {
+        producers_[j].join();
       }
     }
+    #ifdef PRINT_WAITING_TIME
+    for(int i = 0; i < threadNumber_; i++) {
+      std::cout << "consumer " << i << ": " << waitingTimes_[i] << ", " << missCnts_[i] << std::endl;
+    }
+    #endif
   }
   // consumerFile_.close();
   // producerFile_.close();
-  std::cout 
-            << "waiting time: " << waitingTime_
-            << "\nbuffer misses: " << missCnt_ 
-            // << ", cache time: " << cacheTime_
-            // << ", miss time: " << missTime_
-            // << ", producing time: " << producingTime_
-            // << ", producing total time: " << producingTotalTime_ 
-            << std::endl;
-  // std::cout << "total cache operations: " << cacheOps_ 
-            // << ", cache misses: " << misses_
-            // << std::endl;
 }
 
 AcTopo &AcTopo::operator=(const AcTopo &rhs) {
@@ -92,17 +88,21 @@ int AcTopo::clear() {
   doublePrecision_ = false;
   bufferSize_ = 0.2;
   workMode_ = 1;
-  currCluster_ = 0; 
-  currRelation_ = RelationType::BlankRelation;
   prevClusterId_ = 0;
-  missCnt_ = 0;
-  waiting_ = false;
-  precondition_ = false;
   numProducers_ = 1;
   producers_.clear();
-  relationTime_ = 0.0, waitingTime_ = 0.0;
-  // waitingCnt_ = 0, totalReq_ = 0;
-  // this->printMsg("Triangulation cleared.");
+  preconditions_ = std::vector<int>(threadNumber_, 0);
+  sbuffers_ = std::vector<std::list<SimplexId>>(threadNumber_);
+  bufferSets_ = std::vector<boost::unordered_set<SimplexId>>(threadNumber_);
+  bufferMutexes_ = std::vector<std::mutex>(threadNumber_);
+  leaderMutexes_ = std::vector<std::mutex>(threadNumber_);
+  leaderCondVars_ = std::vector<std::condition_variable>(threadNumber_);
+  workerCondVars_ = std::vector<std::condition_variable>(threadNumber_);
+  changed_ = std::vector<int>(threadNumber_, 0);
+  workerMutexes_ = std::vector<std::mutex>(threadNumber_);
+  waitings_ = std::vector<int>(threadNumber_, 0);
+  reqClusters_ = std::vector<SimplexId>(threadNumber_);
+  reqRelations_ = std::vector<RelationType>(threadNumber_);
   return AbstractTriangulation::clear();
 }
 
@@ -126,14 +126,14 @@ int AcTopo::setInputCells(const SimplexId &cellNumber,
 
       bool error = false;
 
-// #ifdef TTK_ENABLE_OPENMP
-// #pragma omp parallel for num_threads(this->threadNumber_)
-// #endif
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(this->threadNumber_)
+#endif
       for(SimplexId i = 0; i < cellNumber; i++) {
         if(offset[i + 1] - offset[i] - 1 != cellDimension) {
-// #ifdef TTK_ENABLE_OPENMP
-// #pragma omp atomic write
-// #endif // TTK_ENABLE_OPENMP
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp atomic write
+#endif // TTK_ENABLE_OPENMP
           error = true;
         }
       }
@@ -169,7 +169,7 @@ int AcTopo::setInputCells(const SimplexId &cellNumber,
   allClusters_ = std::vector<ImplicitCluster>(nodeNumber_ + 1);
   clusterMutexes_ = std::vector<std::mutex>(nodeNumber_ + 1);
   for(int i = 1; i <= nodeNumber_; i++) {
-    allClusters_[i] = ImplicitCluster(i);
+    allClusters_[i] = ImplicitCluster(i, threadNumber_);
   }
 
   // build the connectivity vector
@@ -178,7 +178,7 @@ int AcTopo::setInputCells(const SimplexId &cellNumber,
 
   // set up the adjacency list
   for(SimplexId i = 0; i < cellNumber_; i++) {
-    std::vector<SimplexId> vertexClusters(maxCellDim_+1);
+    std::vector<SimplexId> vertexClusters(maxCellDim_ + 1);
     for(SimplexId j = 0; j <= maxCellDim_; j++) {
       vertexClusters[j]
         = vertexIndices_[cellArray_->getCellVertex(i, j)];
@@ -240,7 +240,7 @@ int AcTopo::setInputCells(const SimplexId &cellNumber,
 
   // set up the adjacency list
   for(SimplexId i = 0; i < cellNumber_; i++) {
-    std::vector<SimplexId> vertexClusters(maxCellDim_+1);
+    std::vector<SimplexId> vertexClusters(maxCellDim_ + 1);
     for(SimplexId j = 0; j <= maxCellDim_; j++) {
       vertexClusters[j]
         = vertexIndices_[cellArray_->getCellVertex(i, j)];
@@ -433,7 +433,7 @@ int AcTopo::reorderCells(const std::vector<SimplexId> &vertexMap,
   return 0;
 }
 
-int AcTopo::buildInternalEdgeList(const SimplexId &clusterId) {
+int AcTopo::buildInternalEdgeList(const SimplexId &clusterId, bool buildBoundary) {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -441,45 +441,81 @@ int AcTopo::buildInternalEdgeList(const SimplexId &clusterId) {
 #endif
 
   SimplexId edgeCount = 0;
-  std::set<std::array<SimplexId, 2>> localEdgeSet;
+  // if we need to build the boundary edge list
+  if(buildBoundary) {
+    std::map<std::array<SimplexId, 2>, int> localEdgeMap;
 
-  // loop through the internal cell list
-  for(SimplexId cid = cellIntervals_[clusterId - 1] + 1;
-      cid <= cellIntervals_[clusterId]; cid++) {
-    std::array<SimplexId, 2> edgeIds;
+    // loop through the internal cell list
+    for(SimplexId cid = cellIntervals_[clusterId - 1] + 1;
+        cid <= cellIntervals_[clusterId]; cid++) {
+      std::array<SimplexId, 2> edgeIds;
 
-    // loop through each edge of the cell
-    for(SimplexId j = 0; j < maxCellDim_; j++) {
-      edgeIds[0] = cellArray_->getCellVertex(cid, j);
-      // the edge does not belong to the current node
-      if(edgeIds[0] > vertexIntervals_[clusterId]) {
-        break;
-      }
-      for(SimplexId k = j + 1; k < maxCellDim_ + 1; k++) {
-        edgeIds[1] = cellArray_->getCellVertex(cid, k);
-
-        // not found in the edge map - assign new edge id
-        if(localEdgeSet.find(edgeIds) == localEdgeSet.end()) {
-          edgeCount++;
-          localEdgeSet.insert(edgeIds);
+      // loop through each edge of the cell
+      for(SimplexId j = 0; j < maxCellDim_; j++) {
+        edgeIds[0] = cellArray_->getCellVertex(cid, j);
+        // the edge does not belong to the current node
+        if(edgeIds[0] > vertexIntervals_[clusterId]) {
+          break;
+        }
+        for(SimplexId k = j + 1; k < maxCellDim_ + 1; k++) {
+          edgeIds[1] = cellArray_->getCellVertex(cid, k);
+          localEdgeMap[edgeIds]++;
         }
       }
     }
-  }
 
-  // loop through the external cell list
-  for(const SimplexId &cid : externalCells_[clusterId]) {
-    std::array<SimplexId, 2> edgeIds;
+    // loop through the external cell list
+    for(const SimplexId &cid : externalCells_[clusterId]) {
+      std::array<SimplexId, 2> edgeIds;
 
-    // loop through each edge of the cell from cell[1]
-    for(SimplexId j = 1; j < maxCellDim_; j++) {
-      for(SimplexId k = j + 1; k < maxCellDim_ + 1; k++) {
+      // loop through each edge of the cell from cell[1]
+      for(SimplexId j = 1; j < maxCellDim_; j++) {
+        for(SimplexId k = j + 1; k < maxCellDim_ + 1; k++) {
+          edgeIds[0] = cellArray_->getCellVertex(cid, j);
+          edgeIds[1] = cellArray_->getCellVertex(cid, k);
+
+          // the edge is in the current node
+          if(edgeIds[0] > vertexIntervals_[clusterId - 1]
+              && edgeIds[0] <= vertexIntervals_[clusterId]) {
+            localEdgeMap[edgeIds]++;
+          }
+        }
+      }
+    }
+
+    // compute boundary edges
+    edgeCount = localEdgeMap.size();
+    std::vector<bool> localBoundEdges(edgeCount, false);
+    int k = 0;
+    for(auto &m : localEdgeMap) {
+      clusterEdges_[clusterId].push_back(std::move(m.first));
+      if(m.second == 1) {
+        localBoundEdges[k] = true;
+      }
+      k++;
+    }
+    allClusters_[clusterId].boundaryEdges_[0] = std::move(localBoundEdges);
+  } 
+  // otherwise, we just build the edge list
+  else {
+    std::set<std::array<SimplexId, 2>> localEdgeSet;
+
+    // loop through the internal cell list
+    for(SimplexId cid = cellIntervals_[clusterId - 1] + 1;
+        cid <= cellIntervals_[clusterId]; cid++) {
+      std::array<SimplexId, 2> edgeIds;
+
+      // loop through each edge of the cell
+      for(SimplexId j = 0; j < maxCellDim_; j++) {
         edgeIds[0] = cellArray_->getCellVertex(cid, j);
-        edgeIds[1] = cellArray_->getCellVertex(cid, k);
+        // the edge does not belong to the current node
+        if(edgeIds[0] > vertexIntervals_[clusterId]) {
+          break;
+        }
+        for(SimplexId k = j + 1; k < maxCellDim_ + 1; k++) {
+          edgeIds[1] = cellArray_->getCellVertex(cid, k);
 
-        // the edge is in the current node
-        if(edgeIds[0] > vertexIntervals_[clusterId - 1]
-            && edgeIds[0] <= vertexIntervals_[clusterId]) {
+          // not found in the edge map - assign new edge id
           if(localEdgeSet.find(edgeIds) == localEdgeSet.end()) {
             edgeCount++;
             localEdgeSet.insert(edgeIds);
@@ -487,13 +523,35 @@ int AcTopo::buildInternalEdgeList(const SimplexId &clusterId) {
         }
       }
     }
-  }
 
-  clusterEdges_[clusterId] = {localEdgeSet.begin(), localEdgeSet.end()};
+    // loop through the external cell list
+    for(const SimplexId &cid : externalCells_[clusterId]) {
+      std::array<SimplexId, 2> edgeIds;
+
+      // loop through each edge of the cell from cell[1]
+      for(SimplexId j = 1; j < maxCellDim_; j++) {
+        for(SimplexId k = j + 1; k < maxCellDim_ + 1; k++) {
+          edgeIds[0] = cellArray_->getCellVertex(cid, j);
+          edgeIds[1] = cellArray_->getCellVertex(cid, k);
+
+          // the edge is in the current node
+          if(edgeIds[0] > vertexIntervals_[clusterId - 1]
+              && edgeIds[0] <= vertexIntervals_[clusterId]) {
+            if(localEdgeSet.find(edgeIds) == localEdgeSet.end()) {
+              edgeCount++;
+              localEdgeSet.insert(edgeIds);
+            }
+          }
+        }
+      }
+    }
+
+    clusterEdges_[clusterId] = {localEdgeSet.begin(), localEdgeSet.end()};
+  }
   return edgeCount;
 }
 
-int AcTopo::buildInternalTriangleList(const SimplexId &clusterId) {
+int AcTopo::buildInternalTriangleList(const SimplexId &clusterId, bool buildBoundary) {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -501,51 +559,106 @@ int AcTopo::buildInternalTriangleList(const SimplexId &clusterId) {
 #endif
 
   SimplexId triangleCount = 0;
-  std::set<std::array<SimplexId, 3>> localTriangleSet;
 
-  // loop through the internal cell list
-  for(SimplexId cid = cellIntervals_[clusterId - 1] + 1;
-      cid <= cellIntervals_[clusterId]; cid++) {
-    std::array<SimplexId, 3> triangleIds;
+  // if we need to build the boundary triangle list
+  if(buildBoundary) {
+    std::map<std::array<SimplexId, 3>, int> localTriangleMap;
 
-    // loop through each triangle of the cell
-    for(SimplexId j = 0; j < maxCellDim_ - 1; j++) {
-      triangleIds[0] = cellArray_->getCellVertex(cid, j);
-      // the triangle does not belong to the current node
-      if(triangleIds[0] > vertexIntervals_[clusterId]) {
-        break;
-      }
-      for(SimplexId k = j + 1; k < maxCellDim_; k++) {
-        for(SimplexId l = k + 1; l < maxCellDim_ + 1; l++) {
-          triangleIds[1] = cellArray_->getCellVertex(cid, k);
-          triangleIds[2] = cellArray_->getCellVertex(cid, l);
+    // loop through the internal cell list
+    for(SimplexId cid = cellIntervals_[clusterId - 1] + 1;
+        cid <= cellIntervals_[clusterId]; cid++) {
+      std::array<SimplexId, 3> triangleIds;
 
-          if(localTriangleSet.find(triangleIds) == localTriangleSet.end()) {
-            triangleCount++;
-            localTriangleSet.insert(triangleIds);
+      // loop through each triangle of the cell
+      for(SimplexId j = 0; j < maxCellDim_ - 1; j++) {
+        triangleIds[0] = cellArray_->getCellVertex(cid, j);
+        // the triangle does not belong to the current node
+        if(triangleIds[0] > vertexIntervals_[clusterId]) {
+          break;
+        }
+        for(SimplexId k = j + 1; k < maxCellDim_; k++) {
+          for(SimplexId l = k + 1; l < maxCellDim_ + 1; l++) {
+            triangleIds[1] = cellArray_->getCellVertex(cid, k);
+            triangleIds[2] = cellArray_->getCellVertex(cid, l);
+            localTriangleMap[triangleIds]++;
           }
         }
       }
     }
-  }
 
-  // loop through the external cell list
-  for(const SimplexId &cid : externalCells_[clusterId]) {
-    // only check the cell[1,2,3] since cell[0] belongs to the previous cluster?
-    std::array<SimplexId, 3> triangleIds;
-      triangleIds[0] = cellArray_->getCellVertex(cid, 1);
-    if(triangleIds[0] > vertexIntervals_[clusterId - 1]
-          && triangleIds[0] <= vertexIntervals_[clusterId]) {
-      triangleIds[1] = cellArray_->getCellVertex(cid, 2);
-      triangleIds[2] = cellArray_->getCellVertex(cid, 3);
-      if(localTriangleSet.find(triangleIds) == localTriangleSet.end()) {
-        triangleCount++;
-        localTriangleSet.insert(triangleIds);
+    // loop through the external cell list
+    for(const SimplexId &cid : externalCells_[clusterId]) {
+      // only check the cell[1,2,3] since cell[0] belongs to the previous cluster?
+      std::array<SimplexId, 3> triangleIds;
+        triangleIds[0] = cellArray_->getCellVertex(cid, 1);
+      if(triangleIds[0] > vertexIntervals_[clusterId - 1]
+            && triangleIds[0] <= vertexIntervals_[clusterId]) {
+        triangleIds[1] = cellArray_->getCellVertex(cid, 2);
+        triangleIds[2] = cellArray_->getCellVertex(cid, 3);
+        localTriangleMap[triangleIds]++;
       }
     }
-  }
 
-  clusterTriangles_[clusterId] = {localTriangleSet.begin(), localTriangleSet.end()};
+    // compute boundary triangles
+    triangleCount = localTriangleMap.size();
+    std::vector<bool> localBoundTriangles(triangleCount, false);
+    int k = 0;
+    for(auto &m : localTriangleMap) {
+      clusterTriangles_[clusterId].push_back(std::move(m.first));
+      if(m.second == 1) {
+        localBoundTriangles[k] = true;
+      }
+      k++;
+    }
+    allClusters_[clusterId].boundaryTriangles_[0] = std::move(localBoundTriangles);
+  }
+  // otherwise, we just build the triangle list
+  else {
+    std::set<std::array<SimplexId, 3>> localTriangleSet;
+
+    // loop through the internal cell list
+    for(SimplexId cid = cellIntervals_[clusterId - 1] + 1;
+        cid <= cellIntervals_[clusterId]; cid++) {
+      std::array<SimplexId, 3> triangleIds;
+
+      // loop through each triangle of the cell
+      for(SimplexId j = 0; j < maxCellDim_ - 1; j++) {
+        triangleIds[0] = cellArray_->getCellVertex(cid, j);
+        // the triangle does not belong to the current node
+        if(triangleIds[0] > vertexIntervals_[clusterId]) {
+          break;
+        }
+        for(SimplexId k = j + 1; k < maxCellDim_; k++) {
+          for(SimplexId l = k + 1; l < maxCellDim_ + 1; l++) {
+            triangleIds[1] = cellArray_->getCellVertex(cid, k);
+            triangleIds[2] = cellArray_->getCellVertex(cid, l);
+
+            if(localTriangleSet.find(triangleIds) == localTriangleSet.end()) {
+              triangleCount++;
+              localTriangleSet.insert(triangleIds);
+            }
+          }
+        }
+      }
+    }
+
+    // loop through the external cell list
+    for(const SimplexId &cid : externalCells_[clusterId]) {
+      // only check the cell[1,2,3] since cell[0] belongs to the previous cluster?
+      std::array<SimplexId, 3> triangleIds;
+        triangleIds[0] = cellArray_->getCellVertex(cid, 1);
+      if(triangleIds[0] > vertexIntervals_[clusterId - 1]
+            && triangleIds[0] <= vertexIntervals_[clusterId]) {
+        triangleIds[1] = cellArray_->getCellVertex(cid, 2);
+        triangleIds[2] = cellArray_->getCellVertex(cid, 3);
+        if(localTriangleSet.find(triangleIds) == localTriangleSet.end()) {
+          triangleCount++;
+          localTriangleSet.insert(triangleIds);
+        }
+      }
+    }
+    clusterTriangles_[clusterId] = {localTriangleSet.begin(), localTriangleSet.end()};
+  }
   return triangleCount;
 }
 
@@ -609,7 +722,7 @@ int AcTopo::buildBoundaryTopCellList(const SimplexId &clusterId) const {
         }
       }
     }
-    cluster.boundaryEdges_ = std::move(localBoundEdges);
+    cluster.boundaryEdges_[0] = std::move(localBoundEdges);
   }
   else if(maxCellDim_ == 3) {
     // get the boundary triangles first
@@ -664,7 +777,7 @@ int AcTopo::buildBoundaryTopCellList(const SimplexId &clusterId) const {
         }
       }
     }
-    cluster.boundaryTriangles_ = std::move(localBoundTriangles);
+    cluster.boundaryTriangles_[0] = std::move(localBoundTriangles);
 
   } else {
     return -1;
@@ -673,7 +786,7 @@ int AcTopo::buildBoundaryTopCellList(const SimplexId &clusterId) const {
   return 0;
 }
 
-int AcTopo::getClusterCellEdges(const SimplexId &clusterId) const {
+int AcTopo::getClusterCellEdges(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -716,15 +829,15 @@ int AcTopo::getClusterCellEdges(const SimplexId &clusterId) const {
 
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.tetraEdges_.empty()) {
-      cluster.tetraEdges_ = std::move(localTetraEdges_);
+    if(cluster.tetraEdges_[threadId].empty()) {
+      cluster.tetraEdges_[threadId] = std::move(localTetraEdges_);
     }
   }
 
   return 0;
 }
 
-int AcTopo::getClusterCellNeighbors(const SimplexId &clusterId) const {
+int AcTopo::getClusterCellNeighbors(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -928,15 +1041,15 @@ int AcTopo::getClusterCellNeighbors(const SimplexId &clusterId) const {
 
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.cellNeighbors_.empty()) {
-      cluster.cellNeighbors_ = FlatJaggedArray(localCellNeighbors);
+    if(cluster.cellNeighbors_[threadId].empty()) {
+      cluster.cellNeighbors_[threadId] = FlatJaggedArray(localCellNeighbors);
     }
   }
 
   return 0;
 }
 
-int AcTopo::getClusterCellTriangles(const SimplexId &clusterId) const {
+int AcTopo::getClusterCellTriangles(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -979,15 +1092,15 @@ int AcTopo::getClusterCellTriangles(const SimplexId &clusterId) const {
 
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.tetraTriangles_.empty()) {
-      cluster.tetraTriangles_ = std::move(localTetraTriangles_);
+    if(cluster.tetraTriangles_[threadId].empty()) {
+      cluster.tetraTriangles_[threadId] = std::move(localTetraTriangles_);
     }
   }
 
   return 0;
 }
 
-int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId) const {
+int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1000,14 +1113,14 @@ int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId) const {
     linksCount(localEdgeNum, 0);
 
   if(maxCellDim_ == 2) {
-    if(cluster.edgeStars_.empty()) {
-      getClusterEdgeStars(clusterId);
+    if(cluster.edgeStars_[threadId].empty()) {
+      getClusterEdgeStars(clusterId, threadId);
     }
     // set the offsets std::vector
     for(SimplexId eid = 0; eid < localEdgeNum; eid++) {
       SimplexId globalEid = eid + edgeIntervals_[clusterId-1] + 1;
-      for(SimplexId j = 0; j < cluster.edgeStars_.size(eid); j++) {
-        SimplexId cellId = cluster.edgeStars_.get(eid, j);
+      for(SimplexId j = 0; j < cluster.edgeStars_[threadId].size(eid); j++) {
+        SimplexId cellId = cluster.edgeStars_[threadId].get(eid, j);
         for(int k = 0; k < 3; k++) {
           SimplexId vertexId = cellArray_->getCellVertex(cellId, k);
           if((vertexId != edgeList_[globalEid][0]) 
@@ -1030,8 +1143,8 @@ int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId) const {
     // fill the flat vector using offsets and count vectors
     for(SimplexId eid = 0; eid < localEdgeNum; eid++) {
       SimplexId globalEid = eid + edgeIntervals_[clusterId-1] + 1;
-      for(SimplexId j = 0; j < cluster.edgeStars_.size(eid); j++) {
-        SimplexId cellId = cluster.edgeStars_.get(eid, j);
+      for(SimplexId j = 0; j < cluster.edgeStars_[threadId].size(eid); j++) {
+        SimplexId cellId = cluster.edgeStars_[threadId].get(eid, j);
         for(int k = 0; k < 3; k++) {
           SimplexId vertexId = cellArray_->getCellVertex(cellId, k);
           if((vertexId != edgeList_[globalEid][0]) 
@@ -1047,13 +1160,13 @@ int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId) const {
     }
 
     // fill FlatJaggedArray struct
-    if(cluster.edgeLinks_.empty()) {
-      cluster.edgeLinks_ = FlatJaggedArray(std::move(edgeLinkData), std::move(offsets));
+    if(cluster.edgeLinks_[threadId].empty()) {
+      cluster.edgeLinks_[threadId] = FlatJaggedArray(std::move(edgeLinkData), std::move(offsets));
     }
 
   } else if(maxCellDim_ == 3) {
-    if(cluster.tetraEdges_.empty()) {
-      getClusterCellEdges(clusterId);
+    if(cluster.tetraEdges_[threadId].empty()) {
+      getClusterCellEdges(clusterId, threadId);
     }
 
     // set the offsets vector
@@ -1134,7 +1247,7 @@ int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId) const {
         edgePair[1] = vertexIds[j];
         SimplexId localEdgeId = findEdgeIdx(clusterId, edgePair);
         edgeLinkData[offsets[localEdgeId] + linksCount[localEdgeId]]
-          = cluster.tetraEdges_.at(cid)[6 - j];
+          = cluster.tetraEdges_[threadId].at(cid)[6 - j];
         linksCount[localEdgeId]++;
       }
       if(vertexIds[1] <= vertexIntervals_[clusterId]) {
@@ -1143,14 +1256,14 @@ int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId) const {
           edgePair[1] = vertexIds[j];
           SimplexId localEdgeId = findEdgeIdx(clusterId, edgePair);
           edgeLinkData[offsets[localEdgeId] + linksCount[localEdgeId]]
-            = cluster.tetraEdges_.at(cid)[4 - j];
+            = cluster.tetraEdges_[threadId].at(cid)[4 - j];
           linksCount[localEdgeId]++;
         }
         if(vertexIds[2] <= vertexIntervals_[clusterId]) {
           edgePair = {vertexIds[2], vertexIds[3]};
           SimplexId localEdgeId = findEdgeIdx(clusterId, edgePair);
           edgeLinkData[offsets[localEdgeId] + linksCount[localEdgeId]]
-            = cluster.tetraEdges_.at(cid)[0];
+            = cluster.tetraEdges_[threadId].at(cid)[0];
           linksCount[localEdgeId]++;
         }
       }
@@ -1200,8 +1313,8 @@ int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId) const {
     // fill FlatJaggedArray struct
     {
       std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-      if(cluster.edgeLinks_.empty()) {
-        cluster.edgeLinks_
+      if(cluster.edgeLinks_[threadId].empty()) {
+        cluster.edgeLinks_[threadId]
           = FlatJaggedArray(std::move(edgeLinkData), std::move(offsets));
       }
     }
@@ -1210,7 +1323,7 @@ int AcTopo::getClusterEdgeLinks(const SimplexId &clusterId) const {
   return 0;
 }
 
-int AcTopo::getClusterEdgeStars(const SimplexId &clusterId) const {
+int AcTopo::getClusterEdgeStars(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1221,8 +1334,6 @@ int AcTopo::getClusterEdgeStars(const SimplexId &clusterId) const {
   SimplexId verticesPerCell = maxCellDim_ + 1;
   SimplexId localEdgeNum = edgeIntervals_[clusterId] - edgeIntervals_[clusterId-1];
   std::vector<std::vector<SimplexId>> localEdgeStarVec(localEdgeNum);
-  // std::vector<SimplexId> offsets(localEdgeNum + 1, 0),
-  //   starsCount(localEdgeNum);
 
   // loop through the internal cell list
   for(SimplexId cid = cellIntervals_[clusterId - 1] + 1;
@@ -1274,15 +1385,15 @@ int AcTopo::getClusterEdgeStars(const SimplexId &clusterId) const {
   
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.edgeStars_.empty()) {
-      cluster.edgeStars_ = FlatJaggedArray{std::move(edgeStarData), std::move(offsets)};
+    if(cluster.edgeStars_[threadId].empty()) {
+      cluster.edgeStars_[threadId] = FlatJaggedArray{std::move(edgeStarData), std::move(offsets)};
     }
   }
 
   return 0;
 }
 
-int AcTopo::getClusterEdgeTriangles(const SimplexId &clusterId) const {
+int AcTopo::getClusterEdgeTriangles(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1356,15 +1467,15 @@ int AcTopo::getClusterEdgeTriangles(const SimplexId &clusterId) const {
   // fill FlatJaggedArray struct
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.edgeTriangles_.empty()) {
-      cluster.edgeTriangles_ = FlatJaggedArray(std::move(edgeTraingleData), std::move(offsets));
+    if(cluster.edgeTriangles_[threadId].empty()) {
+      cluster.edgeTriangles_[threadId] = FlatJaggedArray(std::move(edgeTraingleData), std::move(offsets));
     }
   }
 
   return 0;
 }
 
-int AcTopo::getClusterTriangleEdges(const SimplexId &clusterId) const {
+int AcTopo::getClusterTriangleEdges(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1395,15 +1506,15 @@ int AcTopo::getClusterTriangleEdges(const SimplexId &clusterId) const {
 
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.triangleEdges_.empty()) {
-      cluster.triangleEdges_ = std::move(localTriangleEdges);
+    if(cluster.triangleEdges_[threadId].empty()) {
+      cluster.triangleEdges_[threadId] = std::move(localTriangleEdges);
     }
   }
 
   return 0;
 }
 
-int AcTopo::getClusterTriangleLinks(const SimplexId &clusterId) const {
+int AcTopo::getClusterTriangleLinks(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1415,15 +1526,15 @@ int AcTopo::getClusterTriangleLinks(const SimplexId &clusterId) const {
   std::vector<SimplexId> offsets(localTriangleNum + 1, 0),
     linksCount(localTriangleNum, 0);
 
-  if(cluster.triangleStars_.empty()) {
-    getClusterTriangleStars(clusterId);
+  if(cluster.triangleStars_[threadId].empty()) {
+    getClusterTriangleStars(clusterId, threadId);
   }
 
   // set the offsets vector
   for(SimplexId fid = 0; fid < localTriangleNum; fid++) {
     SimplexId globalFid = fid + triangleIntervals_[clusterId-1] + 1;
-    for(SimplexId i = 0; i < cluster.triangleStars_.size(fid); i++) {
-      SimplexId cellId = cluster.triangleStars_.get(fid, i);
+    for(SimplexId i = 0; i < cluster.triangleStars_[threadId].size(fid); i++) {
+      SimplexId cellId = cluster.triangleStars_[threadId].get(fid, i);
       for(int j = 0; j < 4; j++) {
         SimplexId vertexId = cellArray_->getCellVertex(cellId, j);
         if((vertexId != triangleList_[globalFid][0]) 
@@ -1447,8 +1558,8 @@ int AcTopo::getClusterTriangleLinks(const SimplexId &clusterId) const {
   // fill the flat vector using offsets and count vectors
   for(SimplexId fid = 0; fid < localTriangleNum; fid++) {
     SimplexId globalFid = fid + triangleIntervals_[clusterId-1] + 1;
-    for(SimplexId i = 0; i < cluster.triangleStars_.size(fid); i++) {
-      SimplexId cellId = cluster.triangleStars_.get(fid, i);
+    for(SimplexId i = 0; i < cluster.triangleStars_[threadId].size(fid); i++) {
+      SimplexId cellId = cluster.triangleStars_[threadId].get(fid, i);
       for(int j = 0; j < 4; j++) {
         SimplexId vertexId = cellArray_->getCellVertex(cellId, j);
         if((vertexId != triangleList_[globalFid][0]) 
@@ -1466,8 +1577,8 @@ int AcTopo::getClusterTriangleLinks(const SimplexId &clusterId) const {
   // fill FlatJaggedArray struct
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.triangleLinks_.empty()) {
-      cluster.triangleLinks_ = FlatJaggedArray(
+    if(cluster.triangleLinks_[threadId].empty()) {
+      cluster.triangleLinks_[threadId] = FlatJaggedArray(
         std::move(triangleLinkData), std::move(offsets));
     }
   }
@@ -1475,7 +1586,7 @@ int AcTopo::getClusterTriangleLinks(const SimplexId &clusterId) const {
   return 0;
 }
 
-int AcTopo::getClusterTriangleStars(const SimplexId &clusterId) const {
+int AcTopo::getClusterTriangleStars(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1526,15 +1637,15 @@ int AcTopo::getClusterTriangleStars(const SimplexId &clusterId) const {
   // fill FlatJaggedArray struct
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.triangleStars_.empty()) {
-      cluster.triangleStars_ = std::move(localTriangleStars);
+    if(cluster.triangleStars_[threadId].empty()) {
+      cluster.triangleStars_[threadId] = std::move(localTriangleStars);
     }
   }
 
   return 0;
 }
 
-int AcTopo::getClusterVertexEdges(const SimplexId &clusterId) const {
+int AcTopo::getClusterVertexEdges(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1614,15 +1725,15 @@ int AcTopo::getClusterVertexEdges(const SimplexId &clusterId) const {
   // fill FlatJaggedArray struct
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.vertexEdges_.empty()) {
-      cluster.vertexEdges_ = FlatJaggedArray(std::move(vertexEdgeData), std::move(offsets));
+    if(cluster.vertexEdges_[threadId].empty()) {
+      cluster.vertexEdges_[threadId] = FlatJaggedArray(std::move(vertexEdgeData), std::move(offsets));
     }
   }
 
   return 0;
 }
 
-int AcTopo::getClusterVertexLinks(const SimplexId &clusterId) const {
+int AcTopo::getClusterVertexLinks(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1726,8 +1837,8 @@ int AcTopo::getClusterVertexLinks(const SimplexId &clusterId) const {
     // fill FlatJaggedArray struct
     {
       std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-      if(cluster.vertexLinks_.empty()) {
-        cluster.vertexLinks_ = FlatJaggedArray(
+      if(cluster.vertexLinks_[threadId].empty()) {
+        cluster.vertexLinks_[threadId] = FlatJaggedArray(
           std::move(vertexLinkData), std::move(offsets));
       }
     }
@@ -1855,8 +1966,8 @@ int AcTopo::getClusterVertexLinks(const SimplexId &clusterId) const {
     // fill FlatJaggedArray struct
     {
       std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-      if(cluster.vertexLinks_.empty()) {
-        cluster.vertexLinks_ = FlatJaggedArray(
+      if(cluster.vertexLinks_[threadId].empty()) {
+        cluster.vertexLinks_[threadId] = FlatJaggedArray(
           std::move(vertexLinkData), std::move(offsets));
       }
     }
@@ -1865,7 +1976,7 @@ int AcTopo::getClusterVertexLinks(const SimplexId &clusterId) const {
   return 0;
 }
 
-int AcTopo::getClusterVertexNeighbors(const SimplexId &clusterId) const {
+int AcTopo::getClusterVertexNeighbors(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -1929,8 +2040,8 @@ int AcTopo::getClusterVertexNeighbors(const SimplexId &clusterId) const {
 
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.vertexNeighbors_.empty()) {
-      cluster.vertexNeighbors_ = FlatJaggedArray(
+    if(cluster.vertexNeighbors_[threadId].empty()) {
+      cluster.vertexNeighbors_[threadId] = FlatJaggedArray(
         std::move(vertexNeighborData), std::move(offsets));
     }
   }
@@ -1938,7 +2049,7 @@ int AcTopo::getClusterVertexNeighbors(const SimplexId &clusterId) const {
   return 0;
 }
 
-int AcTopo::getClusterVertexStars(const SimplexId &clusterId) const {
+int AcTopo::getClusterVertexStars(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -2021,8 +2132,8 @@ int AcTopo::getClusterVertexStars(const SimplexId &clusterId) const {
   // fill FlatJaggedArray struct
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.vertexStars_.empty()) {
-      cluster.vertexStars_
+    if(cluster.vertexStars_[threadId].empty()) {
+      cluster.vertexStars_[threadId]
         = FlatJaggedArray(std::move(vertexStarData), std::move(offsets));
     }
   }
@@ -2081,7 +2192,7 @@ int AcTopo::getClusterVertexStarsVector(const SimplexId &clusterId,
   return 0;
 }
 
-int AcTopo::getClusterVertexTriangles(const SimplexId &clusterId) const {
+int AcTopo::getClusterVertexTriangles(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -2176,8 +2287,8 @@ int AcTopo::getClusterVertexTriangles(const SimplexId &clusterId) const {
   // fill FlatJaggedArray struct
   {
     std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-    if(cluster.vertexTriangles_.empty()) {
-      cluster.vertexTriangles_ = FlatJaggedArray(
+    if(cluster.vertexTriangles_[threadId].empty()) {
+      cluster.vertexTriangles_[threadId] = FlatJaggedArray(
         std::move(vertexTriangleData), std::move(offsets));
     }
   }
@@ -2185,7 +2296,7 @@ int AcTopo::getClusterVertexTriangles(const SimplexId &clusterId) const {
   return 0;
 }
 
-int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId) const {
+int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -2193,16 +2304,16 @@ int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId) const {
 #endif
 
   ImplicitCluster &cluster = allClusters_.at(clusterId);
-  if(cluster.boundaryVertices_.empty()) {
+  if(cluster.boundaryVertices_[threadId].empty()) {
     SimplexId localVertexNum = vertexIntervals_[clusterId] - vertexIntervals_[clusterId - 1];
-    SimplexId localTriangleNum = triangleIntervals_[clusterId] - triangleIntervals_[clusterId - 1];
+    SimplexId localTriangleNum = triangleIntervals_[clusterId] - triangleIntervals_[clusterId-1];
     std::vector<bool> localBoundVertices(localVertexNum, false);
     if(maxCellDim_ == 2) {
       SimplexId localEdgeNum = edgeIntervals_[clusterId] - edgeIntervals_[clusterId-1];
       // internal edges
       for(SimplexId eid = 0; eid < localEdgeNum; eid++) {
         SimplexId globalEid = eid + edgeIntervals_[clusterId-1] + 1;
-        if(cluster.boundaryEdges_[eid]) {
+        if(cluster.boundaryEdges_[0][eid]) {
           localBoundVertices[edgeList_[globalEid][0] - vertexIntervals_[clusterId - 1] - 1]
             = true;
           if(edgeList_[globalEid][1] <= vertexIntervals_[clusterId]) {
@@ -2226,7 +2337,7 @@ int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId) const {
                   && edgeIds[1] <= vertexIntervals_[clusterId]) {
                 SimplexId nodeNum = vertexIndices_[edgeIds[0]];
                 SimplexId idx = findEdgeIdx(nodeNum, edgeIds);
-                if(allClusters_[nodeNum].boundaryEdges_[idx]) {
+                if(allClusters_[nodeNum].boundaryEdges_[0][idx]) {
                   localBoundVertices[edgeIds[1] - vertexIntervals_[clusterId - 1] - 1] = true;
                 }
               }
@@ -2238,7 +2349,7 @@ int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId) const {
       // internal triangles
       for(SimplexId fid = 0; fid < localTriangleNum; fid++) {
         SimplexId globalFid = fid + triangleIntervals_[clusterId-1] + 1;
-        if(cluster.boundaryTriangles_[fid]) {
+        if(cluster.boundaryTriangles_[0][fid]) {
           for(int j = 0; j < 3; j++) {
             SimplexId vid = triangleList_[globalFid][j];
             if(vid <= vertexIntervals_[clusterId]) {
@@ -2252,7 +2363,7 @@ int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId) const {
       for(const SimplexId &cid : externalCells_[clusterId]) {
         std::array<SimplexId, 3> triangleIds;
         // suppose cell (1,6,11,16) and 6 is in the current cluster 
-        // triangle like (1,6,11) needs to be added for edge (6,11)
+        // triangle like (1,6,11) needs to be added for vertex 6
         for(SimplexId j = 0; j < maxCellDim_ - 1; j++) {
           triangleIds[0] = cellArray_->getCellVertex(cid, j);
           if(triangleIds[0] <= vertexIntervals_[clusterId - 1]) {
@@ -2264,13 +2375,13 @@ int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId) const {
                 if(triangleIds[1] > vertexIntervals_[clusterId-1]
                     && triangleIds[1] <= vertexIntervals_[clusterId]) {
                   SimplexId localTriangleId = findTriangleIdx(nodeNum, triangleIds);
-                  if(allClusters_[nodeNum].boundaryTriangles_[localTriangleId])
+                  if(allClusters_[nodeNum].boundaryTriangles_[0][localTriangleId])
                     localBoundVertices[triangleIds[1] - vertexIntervals_[clusterId-1] - 1] = true;
                 }
                 if(triangleIds[2] > vertexIntervals_[clusterId-1]
                     && triangleIds[2] <= vertexIntervals_[clusterId]) {
                     SimplexId localTriangleId = findTriangleIdx(nodeNum, triangleIds);
-                    if(allClusters_[nodeNum].boundaryTriangles_[localTriangleId])
+                    if(allClusters_[nodeNum].boundaryTriangles_[0][localTriangleId])
                       localBoundVertices[triangleIds[2] - vertexIntervals_[clusterId-1] - 1] = true;
                 }
               }
@@ -2282,8 +2393,8 @@ int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId) const {
 
     {
       std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-      if(cluster.boundaryVertices_.empty())
-        cluster.boundaryVertices_ = std::move(localBoundVertices);
+      if(cluster.boundaryVertices_[threadId].empty())
+        cluster.boundaryVertices_[threadId] = std::move(localBoundVertices);
     }
   }
 
@@ -2293,7 +2404,7 @@ int AcTopo::getClusterBoundaryVertices(const SimplexId &clusterId) const {
 /**
  * Get the boundary edges in a given node.
  */
-int AcTopo::getClusterBoundaryEdges(const SimplexId &clusterId) const {
+int AcTopo::getClusterBoundaryEdges(const SimplexId &clusterId, const ThreadId &threadId) const {
 
 #ifndef TTK_ENABLE_KAMIKAZE
   if(clusterId <= 0 || clusterId > nodeNumber_)
@@ -2301,14 +2412,14 @@ int AcTopo::getClusterBoundaryEdges(const SimplexId &clusterId) const {
 #endif
 
   ImplicitCluster &cluster = allClusters_.at(clusterId);
-  if(cluster.boundaryEdges_.empty()) {
+  if(cluster.boundaryEdges_[threadId].empty()) {
     SimplexId localEdgeNum = edgeIntervals_[clusterId] - edgeIntervals_[clusterId-1];
     SimplexId localTriangleNum = triangleIntervals_[clusterId] - triangleIntervals_[clusterId-1];
 
     std::vector<bool> localBoundEdges(localEdgeNum, false);
     for(SimplexId fid = 0; fid < localTriangleNum; fid++) {
       SimplexId globalFid = fid + triangleIntervals_[clusterId-1] + 1;
-      if(cluster.boundaryTriangles_[fid]) {
+      if(cluster.boundaryTriangles_[0][fid]) {
         std::array<SimplexId, 2> edgePair
           = {triangleList_[globalFid][0], 
               triangleList_[globalFid][1]};
@@ -2338,7 +2449,7 @@ int AcTopo::getClusterBoundaryEdges(const SimplexId &clusterId) const {
                   && triangleIds[1] <= vertexIntervals_[clusterId]) {
                 SimplexId nodeNum = vertexIndices_[triangleIds[0]];
                 SimplexId idx = findTriangleIdx(nodeNum, triangleIds);
-                if(allClusters_[nodeNum].boundaryTriangles_[idx]) {
+                if(allClusters_[nodeNum].boundaryTriangles_[0][idx]) {
                   std::array<SimplexId, 2> edgePair = {triangleIds[1], triangleIds[2]};
                   localBoundEdges[findEdgeIdx(clusterId, edgePair)] = true;
                 }
@@ -2351,8 +2462,8 @@ int AcTopo::getClusterBoundaryEdges(const SimplexId &clusterId) const {
 
     {
       std::lock_guard<std::mutex> clck(clusterMutexes_[clusterId]);
-      if(cluster.boundaryEdges_.empty())
-        cluster.boundaryEdges_ = std::move(localBoundEdges);
+      if(cluster.boundaryEdges_[threadId].empty())
+        cluster.boundaryEdges_[threadId] = std::move(localBoundEdges);
     }
   }
   
@@ -2360,7 +2471,8 @@ int AcTopo::getClusterBoundaryEdges(const SimplexId &clusterId) const {
 }
 
 void AcTopo::computeRelation(const SimplexId &clusterId,
-                      const RelationType &relation) {
+                      const RelationType &relation, 
+                      const ThreadId &threadId) {
   ImplicitCluster &cluster = allClusters_.at(clusterId);
   switch(relation) {
 
@@ -2376,82 +2488,94 @@ void AcTopo::computeRelation(const SimplexId &clusterId,
         triangleIntervals_[clusterId] = buildInternalTriangleList(clusterId);
       }
       break;
+    
+    case RelationType::IBEList:
+      if(edgeList_.empty()) {
+        edgeIntervals_[clusterId] = buildInternalEdgeList(clusterId, true);
+      }
+      break;
+
+    case RelationType::IBFList:
+      if(triangleList_.empty()) {
+        triangleIntervals_[clusterId] = buildInternalTriangleList(clusterId, true);
+      }
+      break;
 
     case RelationType::IBCList:
-      if(maxCellDim_ == 3 && cluster.boundaryTriangles_.empty()) {
+      if(maxCellDim_ == 3 && cluster.boundaryTriangles_[0].empty()) {
         buildBoundaryTopCellList(clusterId);
       }
-      else if(maxCellDim_ == 2 && cluster.boundaryEdges_.empty()) {
+      else if(maxCellDim_ == 2 && cluster.boundaryEdges_[0].empty()) {
         buildBoundaryTopCellList(clusterId);
       }
       break;
 
     /* vertex-related relations */
     case RelationType::VERelation:
-      if(cluster.vertexEdges_.empty()) {
-        getClusterVertexEdges(clusterId);
+      if(cluster.vertexEdges_[threadId].empty()) {
+        getClusterVertexEdges(clusterId, threadId);
       }
       break;
 
     case RelationType::VFRelation:
-      if(cluster.vertexTriangles_.empty()) {
-        getClusterVertexTriangles(clusterId);
+      if(cluster.vertexTriangles_[threadId].empty()) {
+        getClusterVertexTriangles(clusterId, threadId);
       }
       break;
     
     case RelationType::VLRelation:
-      if(cluster.vertexLinks_.empty()) {
-        getClusterVertexLinks(clusterId);
+      if(cluster.vertexLinks_[threadId].empty()) {
+        getClusterVertexLinks(clusterId, threadId);
       }
       break;
 
     case RelationType::VTRelation:
-      if(cluster.vertexStars_.empty()) {
-        getClusterVertexStars(clusterId);
+      if(cluster.vertexStars_[threadId].empty()) {
+        getClusterVertexStars(clusterId, threadId);
       }
       break;
 
     case RelationType::VVRelation:
-      if(cluster.vertexNeighbors_.empty()) {
-        getClusterVertexNeighbors(clusterId);
+      if(cluster.vertexNeighbors_[threadId].empty()) {
+        getClusterVertexNeighbors(clusterId, threadId);
       }
       break;
 
     /* edge-related relations */
     case RelationType::ELRelation:
-      if(cluster.edgeLinks_.empty()) {
-        getClusterEdgeLinks(clusterId);
+      if(cluster.edgeLinks_[threadId].empty()) {
+        getClusterEdgeLinks(clusterId, threadId);
       }
       break;
 
     case RelationType::EFRelation:
-      if(cluster.edgeTriangles_.empty()) {
-        getClusterEdgeTriangles(clusterId);
+      if(cluster.edgeTriangles_[threadId].empty()) {
+        getClusterEdgeTriangles(clusterId, threadId);
       }
       break;
 
     case RelationType::ETRelation:
-      if(cluster.edgeStars_.empty()) {
-        getClusterEdgeStars(clusterId);
+      if(cluster.edgeStars_[threadId].empty()) {
+        getClusterEdgeStars(clusterId, threadId);
       }
       break;
 
     /* triangle-related relations */
     case RelationType::FERelation:
-      if(cluster.triangleEdges_.empty()) {
-        getClusterTriangleEdges(clusterId);
+      if(cluster.triangleEdges_[threadId].empty()) {
+        getClusterTriangleEdges(clusterId, threadId);
       }
       break;
 
     case RelationType::FLRelation:
-      if(cluster.triangleLinks_.empty()) {
-        getClusterTriangleLinks(clusterId);
+      if(cluster.triangleLinks_[threadId].empty()) {
+        getClusterTriangleLinks(clusterId, threadId);
       }
       break;
 
     case RelationType::FTRelation:
-      if(cluster.triangleStars_.empty()) {
-        getClusterTriangleStars(clusterId);
+      if(cluster.triangleStars_[threadId].empty()) {
+        getClusterTriangleStars(clusterId, threadId);
       }
       break;
 
@@ -2461,33 +2585,33 @@ void AcTopo::computeRelation(const SimplexId &clusterId,
       break;
 
     case RelationType::TERelation:
-      if(cluster.tetraEdges_.empty()) {
-        getClusterCellEdges(clusterId);
+      if(cluster.tetraEdges_[threadId].empty()) {
+        getClusterCellEdges(clusterId, threadId);
       }
       break;
 
     case RelationType::TFRelation:
-      if(cluster.tetraTriangles_.empty()) {
-        getClusterCellTriangles(clusterId);
+      if(cluster.tetraTriangles_[threadId].empty()) {
+        getClusterCellTriangles(clusterId, threadId);
       }
       break;
 
     case RelationType::TTRelation:
-      if(cluster.cellNeighbors_.empty()) {
-        getClusterCellNeighbors(clusterId);
+      if(cluster.cellNeighbors_[threadId].empty()) {
+        getClusterCellNeighbors(clusterId, threadId);
       }
       break;
 
     /* boundary relations */
     case RelationType::BVRelation:
-      if(cluster.boundaryVertices_.empty()) {
-        getClusterBoundaryVertices(clusterId);
+      if(cluster.boundaryVertices_[threadId].empty()) {
+        getClusterBoundaryVertices(clusterId, threadId);
       }
       break;
 
     case RelationType::BERelation:
-      if(cluster.boundaryEdges_.empty()) {
-        getClusterBoundaryEdges(clusterId);
+      if(cluster.boundaryEdges_[threadId].empty()) {
+        getClusterBoundaryEdges(clusterId, threadId);
       }
       break;
 
@@ -2502,168 +2626,233 @@ void AcTopo::computeRelation(const SimplexId &clusterId,
   }
 }
 
-void AcTopo::leaderProcedure() {
+void AcTopo::leaderProcedure(const int &consumerId) {
   // create the worker threads
+  const int startIdx = consumerId * numProducers_;
   SimplexId leaderCluster = 0;
   RelationType leaderFunc = RelationType::BlankRelation;
 
-  // Start the worker threads 
-  changed_ = false;
-  sharedClusterId_ = 0;
-  workerRelationIdx_ = 0;
-  finished_ = std::vector<int>(numProducers_+1, 1);
-  for(int i = 1; i < numProducers_; i++) {
-    producers_[i] = std::thread(&AcTopo::workerProcedure, this, i);
-  }
-
-  while(true) {
-    std::unique_lock<std::mutex> llck(leaderMutex_);
-    while(!precondition_ && !waiting_) {
-      leaderCondVar_.wait(llck);
+  if(numProducers_ > 1) {
+    // Initialize the worker semaphores
+    for(int i = 1; i < numProducers_; i++) {
+      if(sem_init(&semaphores_[startIdx + i], 0, 0)) {
+        this->printErr("Cannot initialize the worker semaphore vector for " + std::to_string(consumerId) + "-th leader producer!");
+      }
     }
 
-    // preconditioning mode
-    if(precondition_) {
-      // set the preconditioning for workers
-      leaderFunc = currRelation_;
-      std::unique_lock<std::mutex> wlck(workerMutex_);
-      workerRelation_ = leaderFunc;
-      for(int i = 1; i < numProducers_; i++) finished_[i] = 0;
-      changed_ = true;
-      wlck.unlock();
-      workerCondVar_.notify_all();
-
-      SimplexId end = nodeNumber_ / numProducers_;
-      for(SimplexId nid = 1; nid <= end; nid++) {
-        computeRelation(nid, leaderFunc);
-      }
-      
-      // wait for the worker producers
-      for(int i = 1; i < numProducers_; i++) {
-        sem_wait(&semaphores_[i]);
-      }
-      sem_post(&semaphores_[0]);
-      changed_ = false;
-      wlck.lock();
-      precondition_ = false;
-      wlck.unlock();
+    // Start the worker threads 
+    changed_[consumerId] = false;
+    sharedClusterIds_[consumerId] = 0;
+    for(int i = 1; i < numProducers_; i++) {
+      producers_[startIdx + i] = std::thread(&AcTopo::workerProcedure, this, i, consumerId);
     }
 
-    // computing mode
-    else if(waiting_) {
-      if(leaderCluster != currCluster_ || leaderFunc != currRelation_) {
-        changed_ = false;      // make sure the worker will stop for the leader
-        leaderCluster = currCluster_, leaderFunc = currRelation_;
-        if(leaderCluster == -1) {
-          std::unique_lock<std::mutex> wlck(workerMutex_);
-          sharedClusterId_ = -1;
-          if(workMode_ > 2) {
-            workerClusterVec_.push_back(-1), workerClusterIdx_ = 0;
-          }
-          changed_ = true;
+    while(true) {
+      std::unique_lock<std::mutex> llck(leaderMutexes_[consumerId]);
+      while(!preconditions_[consumerId] && !waitings_[consumerId]) {
+        leaderCondVars_[consumerId].wait(llck);
+      }
+
+      // preconditioning mode
+      if(preconditions_[consumerId]) {
+        if(leaderFunc != reqRelations_[consumerId]) {
+          // set the preconditioning for workers
+          leaderFunc = reqRelations_[consumerId];
+          std::unique_lock<std::mutex> wlck(workerMutexes_[consumerId]);
+          workerRelations_[consumerId] = leaderFunc;
+          for(int i = 1; i < numProducers_; i++) 
+            finished_[startIdx + i] = 0;
+          changed_[consumerId] = 1;
           wlck.unlock();
-          workerCondVar_.notify_all();
-          return;
+          workerCondVars_[consumerId].notify_all();
+
+          SimplexId startCluster = clustersPerThread_ * startIdx + 1;
+          SimplexId endCluster = startCluster + clustersPerThread_;
+          for(SimplexId nid = startCluster; nid < endCluster; nid++) {
+            computeRelation(nid, leaderFunc, consumerId);
+          }
+          
+          // wait for the worker producers
+          for(int i = 1; i < numProducers_; i++) {
+            sem_wait(&semaphores_[startIdx + i]);
+          }
+
+          sem_post(&semaphores_[startIdx]);
+          changed_[consumerId] = 0;
+          wlck.lock();
+          preconditions_[consumerId] = 0;
+          wlck.unlock();
         }
+      }
 
-        // update the worker cluster and function
-        {
-          std::lock_guard<std::mutex> wlck(workerMutex_);
-          sharedClusterId_ = leaderCluster;
-          if(workMode_ == 1) {
-            workerRelation_ = leaderFunc;
+      // computing mode
+      else if(waitings_[consumerId]) {
+        if(leaderCluster != reqClusters_[consumerId] || leaderFunc != reqRelations_[consumerId]) {
+          changed_[consumerId] = 0;      // make sure the worker will stop for the leader
+          leaderCluster = reqClusters_[consumerId], leaderFunc = reqRelations_[consumerId];
+          if(leaderCluster == -1) {
+            std::unique_lock<std::mutex> wlck(workerMutexes_[consumerId]);
+            sharedClusterIds_[consumerId] = -1;
+            if(workMode_ > 2) {
+              workerClusterVecs_[consumerId].push_back(-1), workerClusterIds_[consumerId] = 0;
+            }
+            changed_[consumerId] = 1;
+            wlck.unlock();
+            workerCondVars_[consumerId].notify_all();
+            return;
           }
-          else if(workMode_ == 2) {
-            workerRelationIdx_ = 0;
+          computeRelation(leaderCluster, leaderFunc, consumerId);
+        
+          // update the worker cluster and function
+          {
+            std::lock_guard<std::mutex> wlck(workerMutexes_[consumerId]);
+            sharedClusterIds_[consumerId] = leaderCluster;
+            if(workMode_ == 1) {
+              workerRelations_[consumerId] = leaderFunc;
+            }
+            else if(workMode_ == 2) {
+              workerRelationIds_[consumerId] = 0;
+            }
+            else if(workMode_ == 3) {
+              workerClusterVecs_[consumerId] = connectivity_[sharedClusterIds_[consumerId]];
+              workerClusterIds_[consumerId] = 0, workerRelationIds_[consumerId] = 0;
+            }
+            else if(workMode_ == 4) {
+              workerClusterVecs_[consumerId] = connectivity_[sharedClusterIds_[consumerId]];
+              workerClusterIds_[consumerId] = 0, workerRelations_[consumerId] = leaderFunc;
+            }
+            changed_[consumerId] = 1;
           }
-          else if(workMode_ == 3) {
-            workerClusterVec_ = connectivity_[sharedClusterId_];
-            workerClusterIdx_ = 0, workerRelationIdx_ = 0;
-          }
-          else if(workMode_ == 4) {
-            workerClusterVec_ = connectivity_[sharedClusterId_];
-            workerClusterIdx_ = 0, workerRelation_ = leaderFunc;
-          }
-          changed_ = true;
-        }
-        workerCondVar_.notify_all();
+          workerCondVars_[consumerId].notify_all();
+          sem_post(&semaphores_[startIdx]);
 
-        computeRelation(leaderCluster, leaderFunc);
-
-        // update the buffer 
-        {
-          std::lock_guard<std::mutex> blck(bufferMutex_);
-          if(!bufferSet_.count(leaderCluster)) {
-            // // clean the buffer first
-            if(sbuffer_.size() >= bufferSize_) {
+          // update the buffer
+          std::unique_lock<std::mutex> bufferLock(bufferMutexes_[consumerId]);
+          if(bufferSets_[consumerId].find(leaderCluster) == bufferSets_[consumerId].end()) {
+            // clean the buffer first
+            if(sbuffers_[consumerId].size() >= bufferSize_) {
               for(size_t i = 0; i < bufferSize_/2; i++) {
-                allClusters_[sbuffer_.front()].clear();
-                bufferSet_.erase(sbuffer_.front());
-                sbuffer_.pop_front(); 
+              allClusters_[sbuffers_[consumerId].front()].clear(consumerId);
+              bufferSets_[consumerId].erase(sbuffers_[consumerId].front());
+              sbuffers_[consumerId].pop_front();
               }
             }
             // add the current cluster to the buffer
-            sbuffer_.push_back(leaderCluster);
-            bufferSet_.insert(leaderCluster);
+            sbuffers_[consumerId].push_back(leaderCluster);
+            bufferSets_[consumerId].insert(leaderCluster);
           }
+          bufferLock.unlock();
         }
-        waiting_ = false;
-        sem_post(&semaphores_[0]);
       }
+      llck.unlock();
     }
-    llck.unlock();
   }
+
+  else {
+    while(true) {
+      std::unique_lock<std::mutex> llck(leaderMutexes_[consumerId]);
+      while(!preconditions_[consumerId] && !waitings_[consumerId]) {
+        leaderCondVars_[consumerId].wait(llck);
+      }
+
+      // preconditioning mode
+      if(preconditions_[consumerId]) {
+        if(leaderFunc != reqRelations_[consumerId]) {
+          // set the preconditioning for workers
+          leaderFunc = reqRelations_[consumerId];
+          SimplexId startCluster = clustersPerThread_ * startIdx + 1;
+          SimplexId endCluster = startCluster + clustersPerThread_;
+          for(SimplexId nid = startCluster; nid < endCluster; nid++) {
+            computeRelation(nid, leaderFunc, consumerId);
+          }
+          sem_post(&semaphores_[startIdx]);
+          preconditions_[consumerId] = 0;
+        }
+      }
+
+      // computing mode
+      else if(waitings_[consumerId]) {
+        if(leaderCluster != reqClusters_[consumerId] || leaderFunc != reqRelations_[consumerId]) {
+          leaderCluster = reqClusters_[consumerId], leaderFunc = reqRelations_[consumerId];
+          if(leaderCluster == -1) {
+            return;
+          }
+          computeRelation(leaderCluster, leaderFunc, consumerId);
+          sem_post(&semaphores_[startIdx]);
+
+          // update the buffer 
+          std::unique_lock<std::mutex> bufferLock(bufferMutexes_[consumerId]);
+          if(bufferSets_[consumerId].find(leaderCluster) == bufferSets_[consumerId].end()) {
+            // clean the buffer first
+            if(sbuffers_[consumerId].size() >= bufferSize_) {
+              for(size_t i = 0; i < bufferSize_/2; i++) {
+              allClusters_[sbuffers_[consumerId].front()].clear(consumerId);
+              bufferSets_[consumerId].erase(sbuffers_[consumerId].front());
+              sbuffers_[consumerId].pop_front();
+              }
+            }
+            // add the current cluster to the buffer
+            sbuffers_[consumerId].push_back(leaderCluster);
+            bufferSets_[consumerId].insert(leaderCluster);
+          }
+          bufferLock.unlock();
+        }
+      }
+      llck.unlock();
+    }
+  }
+
 }
 
-void AcTopo::preconditionFunc(const int &workerId) {
-  int isFinished = finished_[workerId];
-  if(isFinished == 0){
-    SimplexId start = nodeNumber_/numProducers_ * workerId + 1, end = nodeNumber_;
-    if(workerId != numProducers_ - 1) {
-      end = nodeNumber_/numProducers_ * (workerId + 1);
+void AcTopo::preconditionFunc(const int &workerId, const int &consumerId) {
+  const int startIdx = consumerId * numProducers_;
+  int isFinished = finished_[startIdx + workerId];
+  if(isFinished == 0) {
+    SimplexId start = clustersPerThread_* (startIdx + workerId) + 1;
+    SimplexId end = start + clustersPerThread_;
+    for(SimplexId nid = start; nid < end; nid++) {
+      computeRelation(nid, workerRelations_[consumerId], consumerId);
     }
-    for(SimplexId nid = start; nid <= end; nid++) {
-      computeRelation(nid, workerRelation_);
-    }
-    sem_post(&semaphores_[workerId]);
+    sem_post(&semaphores_[startIdx + workerId]);
     // make sure all workers stop after finishing the preconditioning task
-    finished_[workerId] = 1;
+    finished_[startIdx + workerId] = 1;
   }
 }
 
-void AcTopo::workerProcedure(const int &workerId) {
+void AcTopo::workerProcedure(const int &workerId, const int &consumerId) {
+  
   SimplexId clusterId = 0;
   RelationType functionId = RelationType::BlankRelation;
 
   if(workMode_ == 1) {
     while(true) {
-      std::unique_lock<std::mutex> wlock(workerMutex_);
-      while(!changed_) {
-        workerCondVar_.wait(wlock);
+      std::unique_lock<std::mutex> wlock(workerMutexes_[consumerId]);
+      while(!changed_[consumerId]) {
+        workerCondVars_[consumerId].wait(wlock);
       }
-      if(precondition_) {
+      if(preconditions_[consumerId] ) {
         wlock.unlock();
-        preconditionFunc(workerId);
+        preconditionFunc(workerId, consumerId);
       }
-      else if(sharedClusterId_ < 0) {
+      else if(sharedClusterIds_[consumerId] < 0) {
         wlock.unlock();
         return;
       }
       else {
-        if(sbuffer_.size() >= bufferSize_) {
+        if(sbuffers_[consumerId].size() >= bufferSize_) {
           wlock.unlock();
           continue;
         }
-        else if(sharedClusterId_ <= nodeNumber_) {
-          clusterId = sharedClusterId_++, functionId = workerRelation_;
+        else if(sharedClusterIds_[consumerId] <= nodeNumber_) {
+          clusterId = sharedClusterIds_[consumerId]++, functionId = workerRelations_[consumerId];
           wlock.unlock();
-          computeRelation(clusterId, functionId);
+          computeRelation(clusterId, functionId, consumerId);
           // update the buffer
           {
-            std::lock_guard<std::mutex> blck(bufferMutex_);
-            if(!bufferSet_.count(clusterId)) {
-              sbuffer_.push_back(clusterId);
-              bufferSet_.insert(clusterId);
+            std::lock_guard<std::mutex> blck(bufferMutexes_[consumerId]);
+            if(!bufferSets_[consumerId].count(clusterId)) {
+              sbuffers_[consumerId].push_back(clusterId);
+              bufferSets_[consumerId].insert(clusterId);
             }
           }
         }
@@ -2675,36 +2864,36 @@ void AcTopo::workerProcedure(const int &workerId) {
   }
   else if(workMode_ == 2) {
     while(true) {
-      std::unique_lock<std::mutex> wlock(workerMutex_);
-      while(!changed_) {
-        workerCondVar_.wait(wlock);
+      std::unique_lock<std::mutex> wlock(workerMutexes_[consumerId]);
+      while(!changed_[consumerId]) {
+        workerCondVars_[consumerId].wait(wlock);
       }
-      if(precondition_) {
+      if(preconditions_[consumerId] ) {
         wlock.unlock();
-        preconditionFunc(workerId);
+        preconditionFunc(workerId, consumerId);
       }
-      else if(sharedClusterId_ < 0) {
+      else if(sharedClusterIds_[consumerId] < 0) {
         wlock.unlock();
         return;
       }
       else {
-        if(sbuffer_.size() >= bufferSize_) {
+        if(sbuffers_[consumerId].size() >= bufferSize_) {
           wlock.unlock();
           continue;
         }
-        else if(sharedClusterId_ <= nodeNumber_) {
-          clusterId = sharedClusterId_, functionId = relationVec_[workerRelationIdx_++];
-          if(workerRelationIdx_ >= relationVec_.size()) {
-            workerRelationIdx_ = 0, sharedClusterId_++;
+        else if(sharedClusterIds_[consumerId] <= nodeNumber_) {
+          clusterId = sharedClusterIds_[consumerId] , functionId = relationVec_[workerRelationIds_[consumerId]++];
+          if(workerRelationIds_[consumerId] >= relationVec_.size()) {
+            workerRelationIds_[consumerId] = 0, sharedClusterIds_[consumerId] ++;
           }
           wlock.unlock();
-          computeRelation(clusterId, functionId);
+          computeRelation(clusterId, functionId, consumerId);
           // update the buffer
           {
-            std::lock_guard<std::mutex> blck(bufferMutex_);
-            if(!bufferSet_.count(clusterId)) {
-              sbuffer_.push_back(clusterId);
-              bufferSet_.insert(clusterId);
+            std::lock_guard<std::mutex> blck(bufferMutexes_[consumerId]);
+            if(!bufferSets_[consumerId].count(clusterId)) {
+              sbuffers_[consumerId].push_back(clusterId);
+              bufferSets_[consumerId].insert(clusterId);
             }
           }
         }
@@ -2716,38 +2905,38 @@ void AcTopo::workerProcedure(const int &workerId) {
   }
   else if(workMode_ == 3) {
     while(true) {
-      std::unique_lock<std::mutex> wlock(workerMutex_);
-      while(!changed_) {
-        workerCondVar_.wait(wlock);
+      std::unique_lock<std::mutex> wlock(workerMutexes_[consumerId]);
+      while(!changed_[consumerId]) {
+        workerCondVars_[consumerId].wait(wlock);
       }
-      if(precondition_) {
+      if(preconditions_[consumerId] ) {
         wlock.unlock();
-        preconditionFunc(workerId);
+        preconditionFunc(workerId, consumerId);
       }
-      else if(sharedClusterId_ < 0) {
+      else if(sharedClusterIds_[consumerId] < 0) {
         wlock.unlock();
         return;
       }
       else {
-        if(sbuffer_.size() >= bufferSize_) {
+        if(sbuffers_[consumerId].size() >= bufferSize_) {
           wlock.unlock();
           continue;
         }
-        else if(!workerClusterVec_.empty()) {
-          if(workerClusterIdx_ < workerClusterVec_.size()) {
-            clusterId = workerClusterVec_[workerClusterIdx_], functionId = relationVec_[workerRelationIdx_++];
-            if(workerRelationIdx_ >= relationVec_.size()) {
-              workerRelationIdx_ = 0, workerClusterIdx_++;
+        else if(!workerClusterVecs_[consumerId].empty()) {
+          if(workerClusterIds_[consumerId] < workerClusterVecs_[consumerId].size()) {
+            clusterId = workerClusterVecs_[consumerId][workerClusterIds_[consumerId]], functionId = relationVec_[workerRelationIds_[consumerId]++];
+            if(workerRelationIds_[consumerId] >= relationVec_.size()) {
+              workerRelationIds_[consumerId] = 0, workerClusterIds_[consumerId]++;
             }
-          }
-          wlock.unlock();
-          computeRelation(clusterId, functionId);
-          // update the buffer
-          {
-            std::lock_guard<std::mutex> blck(bufferMutex_);
-            if(!bufferSet_.count(clusterId)) {
-              sbuffer_.push_back(clusterId);
-              bufferSet_.insert(clusterId);
+            wlock.unlock();
+            computeRelation(clusterId, functionId, consumerId);
+            // update the buffer
+            {
+              std::lock_guard<std::mutex> blck(bufferMutexes_[consumerId]);
+              if(!bufferSets_[consumerId].count(clusterId)) {
+                sbuffers_[consumerId].push_back(clusterId);
+                bufferSets_[consumerId].insert(clusterId);
+              }
             }
           }
         }
@@ -2759,35 +2948,35 @@ void AcTopo::workerProcedure(const int &workerId) {
   }
   else if(workMode_ == 4) {
     while(true) {
-      std::unique_lock<std::mutex> wlock(workerMutex_);
-      while(!changed_) {
-        workerCondVar_.wait(wlock);
+      std::unique_lock<std::mutex> wlock(workerMutexes_[consumerId]);
+      while(!changed_[consumerId]) {
+        workerCondVars_[consumerId].wait(wlock);
       }
-      if(precondition_) {
+      if(preconditions_[consumerId] ) {
         wlock.unlock();
-        preconditionFunc(workerId);
+        preconditionFunc(workerId, consumerId);
       }
-      else if(sharedClusterId_ < 0) {
+      else if(sharedClusterIds_[consumerId] < 0) {
         wlock.unlock();
         return;
       }
       else {
-        if(sbuffer_.size() >= bufferSize_) {
+        if(sbuffers_[consumerId].size() >= bufferSize_) {
           wlock.unlock();
           continue;
         }
-        else if(!workerClusterVec_.empty()) {
-          if(workerClusterIdx_ < workerClusterVec_.size()) {
-            clusterId = workerClusterVec_[workerClusterIdx_++], functionId = workerRelation_;
-          }
-          wlock.unlock();
-          computeRelation(clusterId, functionId);
-          // update the buffer
-          {
-            std::lock_guard<std::mutex> blck(bufferMutex_);
-            if(!bufferSet_.count(clusterId)) {
-              sbuffer_.push_back(clusterId);
-              bufferSet_.insert(clusterId);
+        else if(!workerClusterVecs_[consumerId].empty()) {
+          if(workerClusterIds_[consumerId] < workerClusterVecs_[consumerId].size()) {
+            clusterId = workerClusterVecs_[consumerId][workerClusterIds_[consumerId]++], functionId = workerRelations_[consumerId];
+            wlock.unlock();
+            computeRelation(clusterId, functionId, consumerId);
+            // update the buffer
+            {
+              std::lock_guard<std::mutex> blck(bufferMutexes_[consumerId]);
+              if(!bufferSets_[consumerId].count(clusterId)) {
+                sbuffers_[consumerId].push_back(clusterId);
+                bufferSets_[consumerId].insert(clusterId);
+              }
             }
           }
         }
