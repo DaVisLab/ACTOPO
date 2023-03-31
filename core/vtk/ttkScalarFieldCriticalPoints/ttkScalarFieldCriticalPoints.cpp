@@ -49,7 +49,7 @@ int ttkScalarFieldCriticalPoints::FillOutputPortInformation(
 }
 
 int ttkScalarFieldCriticalPoints::RequestData(
-  vtkInformation *request,
+  vtkInformation *ttkNotUsed(request),
   vtkInformationVector **inputVector,
   vtkInformationVector *outputVector) {
 
@@ -110,9 +110,9 @@ int ttkScalarFieldCriticalPoints::RequestData(
   connectivity->SetNumberOfComponents(1);
   connectivity->SetNumberOfTuples(criticalPoints_.size());
 
-// #ifdef TTK_ENABLE_OPENMP
-// #pragma omp parallel for num_threads(this->threadNumber_)
-// #endif // TTK_ENABLE_OPENMP
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(this->threadNumber_)
+#endif // TTK_ENABLE_OPENMP
   for(size_t i = 0; i < criticalPoints_.size(); i++) {
     std::array<double, 3> p{};
     input->GetPoint(criticalPoints_[i].first, p.data());
@@ -135,9 +135,9 @@ int ttkScalarFieldCriticalPoints::RequestData(
     vertexBoundary->SetNumberOfTuples(criticalPoints_.size());
     vertexBoundary->SetName("IsOnBoundary");
 
-// #ifdef TTK_ENABLE_OPENMP
-// #pragma omp parallel for num_threads(threadNumber_)
-// #endif
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
     for(size_t i = 0; i < criticalPoints_.size(); i++) {
       vertexBoundary->SetTuple1(
         i, (signed char)triangulation->isVertexOnBoundary(

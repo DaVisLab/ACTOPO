@@ -20,9 +20,9 @@ void ttk::MorseSmaleComplex3D::flattenSeparatricesVectors(
   for(size_t i = 1; i < separatrices.size(); ++i) {
     const auto offset = partialSizes[i];
 
-// #ifdef TTK_ENABLE_OPENMP
-// #pragma omp parallel for num_threads(threadNumber_)
-// #endif // TTK_ENABLE_OPENMP
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif // TTK_ENABLE_OPENMP
     for(size_t j = 0; j < separatrices[i].size(); ++j) {
       // shift separatrices geometry_
       for(size_t k = 0; k < separatrices[i][j].geometry_.size(); ++k) {

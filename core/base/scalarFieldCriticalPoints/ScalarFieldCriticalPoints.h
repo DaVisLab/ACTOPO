@@ -219,18 +219,18 @@ int ttk::ScalarFieldCriticalPoints::executeLegacy(
   std::vector<char> vertexTypes(vertexNumber_);
 
   if(triangulation) {
-// #ifdef TTK_ENABLE_OPENMP
-// #pragma omp parallel for num_threads(threadNumber_)
-// #endif
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
     for(SimplexId i = 0; i < (SimplexId)vertexNumber_; i++) {
 
       vertexTypes[i] = getCriticalType(i, offsets, triangulation);
     }
   } else if(vertexLinkEdgeLists_) {
     // legacy implementation
-// #ifdef TTK_ENABLE_OPENMP
-// #pragma omp parallel for num_threads(threadNumber_)
-// #endif
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
     for(SimplexId i = 0; i < (SimplexId)vertexNumber_; i++) {
 
       vertexTypes[i] = getCriticalType(i, offsets, (*vertexLinkEdgeLists_)[i]);

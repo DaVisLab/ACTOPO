@@ -4,8 +4,8 @@ ttk_add_base_library(scalarFieldCriticalPoints
   HEADERS
     ScalarFieldCriticalPoints.h
   DEPENDS
-    memoryUsage
     triangulation
     unionFind
     progressiveTopology
+    memoryUsage
     )
