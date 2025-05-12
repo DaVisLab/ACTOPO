@@ -3,6 +3,7 @@
 #include <ttkAlgorithmModule.h>
 
 #include <Debug.h>
+#include <memory>
 #include <unordered_map>
 #include <vtkType.h>
 
