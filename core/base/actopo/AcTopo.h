@@ -222,12 +222,14 @@ namespace ttk {
 #ifdef TTK_CELL_ARRAY_NEW
     // Layout with connectivity + offset array (new)
     int setInputCells(const SimplexId &cellNumber,
-                             const LongSimplexId *connectivity,
-                             const LongSimplexId *offset);
+                      const LongSimplexId *connectivity,
+                      const LongSimplexId *offset,
+                      bool reorder=false);
 #else
     // Flat layout with a single array (legacy & default one)
     int setInputCells(const SimplexId &cellNumber,
-                             const LongSimplexId *cellArray);
+                      const LongSimplexId *cellArray,
+                      bool reorder=false);
 #endif
 
     /**

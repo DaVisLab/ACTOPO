@@ -110,51 +110,93 @@ int AcTopo::clear() {
 // Layout with connectivity + offset array (new)
 int AcTopo::setInputCells(const SimplexId &cellNumber,
                           const LongSimplexId *connectivity,
-                          const LongSimplexId *offset) {
-
-  // Cell Check
-  {
-    if(cellNumber > 0) {
-      const auto &cellDimension = offset[1] - offset[0] - 1;
-
-      if(cellDimension < 0 || cellDimension > 3) {
-        this->printErr("Unable to create triangulation for cells of "
-                        "dimension 4 or higher ("
-                        + std::to_string(cellDimension) + ").");
-        return -1;
-      }
-
-      bool error = false;
-
-#ifdef TTK_ENABLE_OPENMP
-#pragma omp parallel for num_threads(this->threadNumber_)
-#endif
-      for(SimplexId i = 0; i < cellNumber; i++) {
-        if(offset[i + 1] - offset[i] - 1 != cellDimension) {
-#ifdef TTK_ENABLE_OPENMP
-#pragma omp atomic write
-#endif // TTK_ENABLE_OPENMP
-          error = true;
-        }
-      }
-
-      if(error) {
-        this->printErr("Unable to create triangulation for "
-                        "inhomogeneous\ncell dimensions.");
-        return -2;
-      }
-    }
-  }
+                          const LongSimplexId *offset,
+                          bool reorder) {
 
   if(cellNumber_)
     clear();
 
   cellNumber_ = cellNumber;
-  std::vector<SimplexId> vertexMap(vertexNumber_);
-  reorderVertices(vertexMap);
-  reorderCells(vertexMap, cellNumber, connectivity, offset);
-  cellArray_
-    = std::make_shared<CellArray>(connectivity, offset, cellNumber);
+  
+  // get the number of nodes (the max value in the array)
+  nodeNumber_ = *std::max_element(vertexIndices_, vertexIndices_ + vertexNumber_) + 1;
+  
+  if (reorder) {
+    std::vector<SimplexId> vertexMap(vertexNumber_);
+    reorderVertices(vertexMap);
+    reorderCells(vertexMap, cellNumber, connectivity, offset);
+    cellArray_
+      = std::make_shared<CellArray>(connectivity, offset, cellNumber);
+  }
+  else {
+    cellArray_
+      = std::make_shared<CellArray>(connectivity, offset, cellNumber);
+    
+    vertexIntervals_.resize(nodeNumber_ + 1);
+    vertexIntervals_[0] = -1;
+    std::vector<SimplexId> nodeVertexCounts(nodeNumber_, 0);
+    for(SimplexId vid = 0; vid < vertexNumber_; vid++) {
+      nodeVertexCounts[vertexIndices_[vid]]++;
+      ((int *)vertexIndices_)[vid]++;
+    }
+    SimplexId vertexCount = 0;
+    for(SimplexId nid = 0; nid < nodeNumber_; nid++) {
+      vertexCount += nodeVertexCounts[nid];
+      vertexIntervals_[nid + 1] = vertexCount - 1;
+    }
+    
+    cellIntervals_.resize(nodeNumber_ + 1);
+    externalCells_.resize(nodeNumber_ + 1);
+    cellIntervals_[0] = -1;
+    
+    SimplexId verticesPerCell = offset[1] - offset[0];
+    
+    // Group cells by their first vertex's node
+    std::vector<std::vector<SimplexId>> nodeCells(nodeNumber_ + 1);
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+    for(SimplexId cid = 0; cid < cellNumber; cid++) {
+      SimplexId firstVertex = cellArray_->getCellVertex(cid, 0);
+      SimplexId nodeId = vertexIndices_[firstVertex];
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp critical
+#endif
+      nodeCells[nodeId].push_back(cid);
+    }
+    
+    // Build cellIntervals_
+    SimplexId cellCount = 0;
+    std::vector<SimplexId> nodeCellCounts(nodeNumber_ + 1, 0);
+    for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
+      cellCount += nodeCells[nid].size();
+      cellIntervals_[nid] = cellCount - 1;
+    }
+    
+    // Build externalCells_ in parallel
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp parallel for num_threads(threadNumber_)
+#endif
+    for(SimplexId nid = 1; nid <= nodeNumber_; nid++) {
+      for(SimplexId cid : nodeCells[nid]) {
+        for(int j = 0; j < verticesPerCell; j++) {
+          SimplexId vid = cellArray_->getCellVertex(cid, j);
+          if(vid > vertexIntervals_[nid]) {
+            SimplexId nodeNum = vertexIndices_[vid];
+#ifdef TTK_ENABLE_OPENMP
+#pragma omp critical
+#endif
+            {
+              if(externalCells_[nodeNum].empty()
+                  || externalCells_[nodeNum].back() != cid) {
+                externalCells_[nodeNum].push_back(cid);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 
   // ASSUME Regular Mesh Here to compute dimension!
   if(cellNumber) {
@@ -203,21 +245,50 @@ int AcTopo::setInputCells(const SimplexId &cellNumber,
 #else
 // Flat layout with a single array (legacy & default one)
 int AcTopo::setInputCells(const SimplexId &cellNumber,
-                          const LongSimplexId *cellArray) {
+                          const LongSimplexId *cellArray,
+                          bool reorder) {
   if(cellNumber_)
     clear();
 
   cellNumber_ = cellNumber;
+  
+  nodeNumber_ = *std::max_element(vertexIndices_, vertexIndices_ + vertexNumber_) + 1;
 
   if(cellNumber) {
     // assume regular mesh here to compute dimension
     maxCellDim_ = cellArray[0] - 1;
-    std::vector<SimplexId> vertexMap(vertexNumber_);
-    reorderVertices(vertexMap);
-    reorderCells(vertexMap, cellArray);
-    cellArray_ = std::make_shared<CellArray>(
-      cellArray, cellNumber, cellArray[0] - 1);
+    
+    if(reorder) {
+      std::vector<SimplexId> vertexMap(vertexNumber_);
+      reorderVertices(vertexMap);
+      reorderCells(vertexMap, cellArray);
+      cellArray_ = std::make_shared<CellArray>(
+        cellArray, cellNumber, cellArray[0] - 1);
+    }
+    else {
+      cellArray_ = std::make_shared<CellArray>(
+        cellArray, cellNumber, cellArray[0] - 1);
+      
+      // Build vertexIntervals_ - input vertexIndices_ is 0-indexed
+      vertexIntervals_.resize(nodeNumber_ + 1);
+      vertexIntervals_[0] = -1;
+      std::vector<SimplexId> nodeVertexCounts(nodeNumber_, 0);
+      for(SimplexId vid = 0; vid < vertexNumber_; vid++) {
+        nodeVertexCounts[vertexIndices_[vid]]++;
+      }
+      SimplexId vertexCount = 0;
+      for(SimplexId nid = 0; nid < nodeNumber_; nid++) {
+        vertexCount += nodeVertexCounts[nid];
+        vertexIntervals_[nid + 1] = vertexCount - 1;
+      }
+      
+      // Convert vertexIndices_ from 0-indexed to 1-indexed to match reorder behavior
+      for(SimplexId vid = 0; vid < vertexNumber_; vid++) {
+        ((int *)vertexIndices_)[vid]++;
+      }
+    }
   }
+  
   // ASSUME Regular Mesh Here to compute dimension!
   if(cellNumber) {
     if(cellArray_->getCellVertexNumber(0) == 3) {
@@ -265,13 +336,6 @@ int AcTopo::setInputCells(const SimplexId &cellNumber,
 #endif
 
 int AcTopo::reorderVertices(std::vector<SimplexId> &vertexMap) {
-  // get the number of nodes (the max value in the array)
-  for(SimplexId vid = 0; vid < vertexNumber_; vid++) {
-    if(vertexIndices_[vid] > nodeNumber_) {
-      nodeNumber_ = vertexIndices_[vid];
-    }
-  }
-  nodeNumber_++; // since the index starts from 0
   std::vector<std::vector<SimplexId>> nodeVertices(nodeNumber_);
   for(SimplexId vid = 0; vid < vertexNumber_; vid++) {
     nodeVertices[vertexIndices_[vid]].push_back(vid);

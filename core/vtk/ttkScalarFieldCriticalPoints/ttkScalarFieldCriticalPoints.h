@@ -125,7 +125,7 @@ protected:
 
 private:
   bool ForceInputOffsetScalarField{false};
-  bool VertexIds{true}, VertexScalars{true}, VertexBoundary{true};
+  bool VertexIds{true}, VertexScalars{true}, VertexBoundary{false};
 
   std::vector<std::vector<std::pair<ttk::SimplexId, ttk::SimplexId>>>
     vertexLinkEdgeList_;
