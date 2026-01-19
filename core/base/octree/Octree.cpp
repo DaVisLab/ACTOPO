@@ -193,9 +193,9 @@ int Octree::insertCell(SimplexId &cellId) {
 /**
  * Get reindexed vertices and cells.
  */
-void Octree::reindex(vector<SimplexId> &vertices,
-                     vector<SimplexId> &nodes,
-                     vector<SimplexId> &cells) {
+int Octree::reindex(vector<SimplexId> &vertices,
+                    vector<SimplexId> &nodes,
+                    vector<SimplexId> &cells) {
   int totalCells = triangulation_->getNumberOfCells();
   vector<int> cellMap(totalCells, -1);
 
@@ -251,6 +251,8 @@ void Octree::reindex(vector<SimplexId> &vertices,
   }
   this->printMsg("reindex(): There are " + to_string(count)
                  + " wrong entries!");
+
+  return leafCount;
 }
 
 void Octree::computeCenterSize(uint32_t location,

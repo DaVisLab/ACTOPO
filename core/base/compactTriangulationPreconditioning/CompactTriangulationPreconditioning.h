@@ -93,10 +93,12 @@ namespace ttk {
           return -1;
         }
 
-        preOctree.reindex(this->vertices, this->nodes, this->cells);
+        this->nodeNumber = preOctree.reindex(this->vertices, this->nodes,
+                                             this->cells);
         this->printMsg({
           {"Size of vertex vector", std::to_string(this->vertices.size())},
           {"Size of cell vector", std::to_string(this->cells.size())},
+          {"Number of partitions", std::to_string(this->nodeNumber)},
         });
       }
 
@@ -118,10 +120,12 @@ namespace ttk {
       this->vertices.clear();
       this->nodes.clear();
       this->cells.clear();
+      this->nodeNumber = 0;
     }
 
   protected:
     mutable std::vector<SimplexId> vertices, nodes, cells;
+    mutable SimplexId nodeNumber{0};
 
   }; // CompactTriangulationPreconditioning class
 

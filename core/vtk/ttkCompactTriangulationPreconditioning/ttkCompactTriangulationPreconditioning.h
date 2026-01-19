@@ -54,6 +54,7 @@ class TTKCOMPACTTRIANGULATIONPRECONDITIONING_EXPORT
 {
 private:
   int Threshold;
+  bool WriteExternalCells;
   vtkSmartPointer<vtkDataArraySelection> ArraySelection;
 
 public:
@@ -66,6 +67,9 @@ public:
 
   vtkSetMacro(Threshold, int);
   vtkGetMacro(Threshold, int);
+
+  vtkSetMacro(WriteExternalCells, bool);
+  vtkGetMacro(WriteExternalCells, bool);
 
   // copy the vtkPassSelectedArray ("PassArrays" filter) API
   vtkDataArraySelection *GetDataArraySelection() {

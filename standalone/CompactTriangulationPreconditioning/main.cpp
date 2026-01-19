@@ -28,6 +28,7 @@ int main(int argc, char **argv) {
   std::vector<std::string> inputArrayNames;
   std::string outputPathPrefix{"output"};
   bool listArrays{false};
+  bool writeExternalCells{false};
 
   // ---------------------------------------------------------------------------
   // Set program variables based on command line arguments
@@ -49,6 +50,7 @@ int main(int argc, char **argv) {
     // TODO 13: Declare custom arguments and options
     // -------------------------------------------------------------------------
     parser.setArgument("b", &bucketThreshold, "Bucket threshold", true);
+    parser.setOption("e", &writeExternalCells, "Write external cell arrays");
 
     parser.parse(argc, argv);
   }
@@ -71,6 +73,7 @@ int main(int argc, char **argv) {
   // ---------------------------------------------------------------------------
   // compactTriangulationPreconditioning->SetOutputArrayName(outputArrayName);
   compactTriangulationPreconditioning->SetThreshold(bucketThreshold);
+  compactTriangulationPreconditioning->SetWriteExternalCells(writeExternalCells);
 
   // ---------------------------------------------------------------------------
   // Read input vtkDataObjects (optionally: print available arrays)
