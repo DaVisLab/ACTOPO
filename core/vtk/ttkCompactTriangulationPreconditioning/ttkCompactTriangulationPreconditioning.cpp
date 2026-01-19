@@ -6,13 +6,17 @@
 #include <vtkCommand.h>
 #include <vtkDataArray.h>
 #include <vtkDataSet.h>
+#include <vtkIdList.h>
 #include <vtkInformation.h>
 #include <vtkIntArray.h>
 #include <vtkObjectFactory.h>
 #include <vtkPointData.h>
 #include <vtkPointSet.h>
 #include <vtkSmartPointer.h>
+#include <vtkUnsignedCharArray.h>
 #include <vtkUnstructuredGrid.h>
+
+#include <string>
 
 using namespace std;
 using namespace ttk;
@@ -187,6 +191,58 @@ int ttkCompactTriangulationPreconditioning::RequestData(
     outputDataSet->GetCellData()->AddArray(updatedField);
   }
 
-  // return success
+  if(this->WriteExternalCells) {
+    Timer timer;
+    this->printMsg("Adding cell data arrays for partition info");
+    
+    const vtkIdType numCells = this->cells.size();
+    
+    // Pre-create per-partition external cell arrays once
+    std::vector<vtkSmartPointer<vtkUnsignedCharArray>> inclusions(this->nodeNumber);
+    std::vector<unsigned char *> inclusionPtrs(this->nodeNumber);
+    for(SimplexId pid = 0; pid < this->nodeNumber; ++pid) {
+      vtkSmartPointer<vtkUnsignedCharArray> arr
+        = vtkSmartPointer<vtkUnsignedCharArray>::New();
+      arr->SetNumberOfComponents(1);
+      const std::string arrayName = "partition_cells_" + std::to_string(pid);
+      arr->SetName(arrayName.c_str());
+      arr->SetNumberOfTuples(numCells);
+      arr->FillComponent(0, 0);
+      outputDataSet->GetCellData()->AddArray(arr);
+      inclusions[pid] = arr;
+      inclusionPtrs[pid] = arr->GetPointer(0);
+    }
+
+    // Parallelize over cells; for each cell, only visit its vertices
+    // and mark the corresponding partition array once.
+    #ifdef TTK_ENABLE_OPENMP
+    #pragma omp parallel num_threads(this->threadNumber_)
+    {
+      vtkSmartPointer<vtkIdList> cellPoints = vtkSmartPointer<vtkIdList>::New();
+      #pragma omp for schedule(static)
+      for(vtkIdType cid = 0; cid < numCells; ++cid) {
+        outputMesh->GetCellPoints(cid, cellPoints);
+        for(vtkIdType k = 0; k < cellPoints->GetNumberOfIds(); ++k) {
+          const vtkIdType pointId = cellPoints->GetId(k);
+          const SimplexId pid = this->nodes.at(pointId);
+          inclusionPtrs[pid][cid] = 1;
+        }
+      }
+    }
+    #else
+    vtkSmartPointer<vtkIdList> cellPoints = vtkSmartPointer<vtkIdList>::New();
+    for(vtkIdType cid = 0; cid < numCells; ++cid) {
+      outputMesh->GetCellPoints(cid, cellPoints);
+      for(vtkIdType k = 0; k < cellPoints->GetNumberOfIds(); ++k) {
+        const vtkIdType pointId = cellPoints->GetId(k);
+        const SimplexId pid = this->nodes.at(pointId);
+        inclusionPtrs[pid][cid] = 1;
+      }
+    }
+    #endif
+
+    this->printMsg("External cell arrays written", 1.0, timer.getElapsedTime());
+  }
+
   return 1;
 }

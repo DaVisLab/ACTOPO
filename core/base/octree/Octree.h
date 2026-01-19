@@ -66,9 +66,9 @@ public:
 
   int insertCell(ttk::SimplexId &cellId);
 
-  void reindex(std::vector<ttk::SimplexId> &vertices,
-               std::vector<ttk::SimplexId> &nodes,
-               std::vector<ttk::SimplexId> &cells);
+  int reindex(std::vector<ttk::SimplexId> &vertices,
+              std::vector<ttk::SimplexId> &nodes,
+              std::vector<ttk::SimplexId> &cells);
 
 private:
   const ttk::AbstractTriangulation *triangulation_;
